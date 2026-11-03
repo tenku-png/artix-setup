@@ -25,6 +25,7 @@ cd "linux-$VER"
 # Base: the running zen config
 zcat /proc/config.gz > .config 2>/dev/null || cp "/usr/lib/modules/$ZVER/build/.config" .config
 make olddefconfig >/dev/null
+cp .config zen.config
 
 # Keep only modules used on this PC: loaded now + the list from the old Arch
 {
@@ -52,6 +53,10 @@ $S -e SECURITY -e SECURITY_LANDLOCK -e MODULES -e BLK_DEV_INITRD -e IKCONFIG -e 
 	-e NAMESPACES -e USER_NS -e CGROUPS -e TUN -e BTRFS_FS -e VFAT_FS -e EXFAT_FS -e NTFS3_FS \
 	-e DRM -e DRM_FBDEV_EMULATION -e SYSFB_SIMPLEFB -e DRM_SIMPLEDRM -e INPUT_UINPUT
 $S --set-str LOCALVERSION "-mini" -d LOCALVERSION_AUTO
+# Graphics stack exactly as in zen: localmodconfig drops DRM/fbdev helpers
+# the out-of-tree NVIDIA driver needs (fbdev console, KMS for compositors)
+grep -E '^CONFIG_(DRM|FB|FRAMEBUFFER|FONT|VT|DUMMY_CONSOLE|DMA_SHARED|DMABUF|SYNC_FILE|SW_SYNC|UDMABUF|VIDEO|BACKLIGHT|HDMI|AGP|VGA|SYSFB|AUXDISPLAY|I2C|EFI)[A-Z0-9_]*=[ym]' zen.config |
+	grep -vE '^CONFIG_DRM_(AMDGPU|RADEON|I915|XE|NOUVEAU|VMWGFX|QXL|BOCHS|VIRTIO|VBOXVIDEO|GMA500|MGAG200|AST|HISI|HYPERV|XEN)' >> .config
 make olddefconfig >/dev/null
 echo "==> config: $(grep -c '=y' .config) built-in, $(grep -c '=m' .config) modules"
 
