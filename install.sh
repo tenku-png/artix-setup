@@ -75,6 +75,13 @@ command -v basestrap >/dev/null || die "basestrap not found: run this from the A
 ping -c1 -W3 artixlinux.org >/dev/null 2>&1 || die "no network (try: dinitctl start dhcpcd)"
 
 pacman -Sy --needed --noconfirm git >/dev/null
+# A stalled connection makes git hang forever; abort slow transfers after
+# 20 s so retry() can try again (also written to the new system below)
+GITCONF='[http]
+	version = HTTP/1.1
+	lowSpeedLimit = 1000
+	lowSpeedTime = 20'
+printf '%s\n' "$GITCONF" > /etc/gitconfig
 if [ -f "$(dirname "$0")/packages/base.txt" ]; then
 	REPO=$(cd "$(dirname "$0")" && pwd)
 else
@@ -285,6 +292,7 @@ in_chroot "
 "
 printf 'root:%s\n%s:%s\n' "$ROOT_PASS" "$USERNAME" "$USER_PASS" | artix-chroot "$MNT" chpasswd
 # doas: persistent for wheel; temporarily passwordless for the install
+printf '%s\n' "$GITCONF" > "$MNT/etc/gitconfig"
 printf 'permit persist :wheel\npermit nopass %s\n' "$USERNAME" > "$MNT/etc/doas.conf"
 chmod 600 "$MNT/etc/doas.conf"
 echo 'PACMAN_AUTH=(doas)' >> "$MNT/etc/makepkg.conf"
@@ -384,7 +392,7 @@ retry as_user "cd /tmp && rm -rf paru-bin && git clone https://aur.archlinux.org
 
 if [ ${#AUR_PKGS[@]} -gt 0 ]; then
 	say "AUR packages: ${AUR_PKGS[*]}"
-	as_user "paru -S --needed --noconfirm --skipreview ${AUR_PKGS[*]}" ||
+	retry as_user "paru -S --needed --noconfirm --skipreview ${AUR_PKGS[*]}" ||
 		warn "some AUR packages failed; retry later with: paru -S ${AUR_PKGS[*]}"
 fi
 
@@ -402,7 +410,7 @@ fi
 
 if [ "$WMSEL" != 2 ]; then
 	say "lilith (liwm, branch $LIWM_BRANCH)"
-	as_user "rm -rf ~/liwm && git clone -b $LIWM_BRANCH $LIWM_URL ~/liwm && cd ~/liwm && make && doas make install" ||
+	retry as_user "rm -rf ~/liwm && git clone -b $LIWM_BRANCH $LIWM_URL ~/liwm && cd ~/liwm && make && doas make install" ||
 		warn "lilith build failed; retry in ~/liwm with: make && doas make install"
 fi
 
