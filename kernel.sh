@@ -68,6 +68,8 @@ doas make modules_install >/dev/null
 doas install -m644 arch/x86/boot/bzImage "/boot/vmlinuz-$NAME"
 # dkms modules (nvidia, amneziawg) need the build tree: /usr/lib/modules/$KVER/build
 doas ln -sfn "$PWD" "/usr/lib/modules/$KVER/build"
+# modules_install wiped earlier dkms modules: drop stale dkms records first
+for m in $(dkms status -k "$KVER" 2>/dev/null | cut -d, -f1 | sort -u); do doas dkms remove "$m" -k "$KVER" >/dev/null 2>&1; done
 doas dkms autoinstall -k "$KVER" || echo "!! dkms failed: NVIDIA/AmneziaWG may be missing on $NAME"
 doas depmod -a "$KVER"
 echo amneziawg | doas tee /etc/modules-load.d/amneziawg.conf >/dev/null

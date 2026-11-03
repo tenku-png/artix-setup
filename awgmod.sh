@@ -5,8 +5,10 @@ echo "==> kernel $K"
 doas depmod -a "$K"
 if ! doas modprobe amneziawg 2>/tmp/awg.err; then
 	echo "==> modprobe failed: $(cat /tmp/awg.err)"
-	echo "==> rebuilding amneziawg with dkms"
-	doas dkms autoinstall -k "$K" 2>&1 | tail -4
+	echo "==> reinstalling amneziawg with dkms (forced)"
+	v=$(dkms status amneziawg | head -1 | cut -d/ -f2 | cut -d, -f1)
+	doas dkms remove "amneziawg/$v" -k "$K" >/dev/null 2>&1
+	doas dkms install "amneziawg/$v" -k "$K" 2>&1 | tail -4
 	doas depmod -a "$K"
 	doas modprobe amneziawg || { echo "==> still failing:"; doas dmesg | grep -iE 'amneziawg|symbol' | tail -6; exit 1; }
 fi
