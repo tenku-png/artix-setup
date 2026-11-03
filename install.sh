@@ -96,7 +96,8 @@ fi
 # Disk the ISO was booted from: never offered for wiping
 ISO_DISK=
 src=$(findmnt -no SOURCE /run/artix/bootmnt 2>/dev/null || true)
-[ -n "$src" ] && ISO_DISK=/dev/$(lsblk -no PKNAME "$src" 2>/dev/null | head -1)
+# Walk up to the physical disk: also works for Ventoy (/dev/mapper/ventoy)
+[ -n "$src" ] && ISO_DISK=$(lsblk -nspo NAME,TYPE "$src" 2>/dev/null | awk '$2=="disk"{print $1; exit}')
 mapfile -t DISKS < <(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v -e zram -e loop | grep -vx "${ISO_DISK:-NONE}" || true)
 mapfile -t PARTS < <(lsblk -pnlo NAME,TYPE | awk '$2=="part"{print $1}' | grep -v "^${ISO_DISK:-NONE}" || true)
 
