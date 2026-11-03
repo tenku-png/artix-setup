@@ -1,0 +1,33 @@
+--- a/sway/input/seatop_default.c
++++ b/sway/input/seatop_default.c
+@@ -361,6 +361,10 @@
+ 	bool mod_move_btn_pressed = mod_pressed && button == mod_move_btn;
+ 	bool mod_resize_btn_pressed = mod_pressed && button == mod_resize_btn;
+ 	bool titlebar_left_btn_pressed = on_titlebar && button == BTN_LEFT;
++	// Middle-button drag without modifiers moves windows (like Hyprland's
++	// "bind = , mouse:274, movewindow").
++	bool middle_drag_pressed = button == BTN_MIDDLE &&
++		!(modifiers & ~WLR_MODIFIER_CAPS);
+ 
+ 	// Handle mouse bindings
+ 	if (trigger_pointer_button_binding(seat, device, button, state, modifiers,
+@@ -457,7 +461,8 @@
+ 	// Handle beginning floating move
+ 	if (cont && is_floating_or_child && !is_fullscreen_or_child &&
+ 			state == WL_POINTER_BUTTON_STATE_PRESSED &&
+-			(mod_move_btn_pressed || titlebar_left_btn_pressed)) {
++			(mod_move_btn_pressed || titlebar_left_btn_pressed ||
++			middle_drag_pressed)) {
+ 		seatop_begin_move_floating(seat, container_toplevel_ancestor(cont));
+ 		return;
+ 	}
+@@ -487,7 +492,8 @@
+ 	}
+ 
+ 	// Handle moving a tiling container
+-	if (config->tiling_drag && (mod_move_btn_pressed || titlebar_left_btn_pressed) &&
++	if (config->tiling_drag && (mod_move_btn_pressed || titlebar_left_btn_pressed ||
++			middle_drag_pressed) &&
+ 			state == WL_POINTER_BUTTON_STATE_PRESSED && !is_floating_or_child &&
+ 			cont && cont->pending.fullscreen_mode == FULLSCREEN_NONE) {
+ 		// If moving a container by its title bar, use a threshold for the drag

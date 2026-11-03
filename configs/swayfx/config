@@ -73,8 +73,8 @@ for_window [title=".*[Mm]inecraft.*"] allow_tearing yes
 # Super+left drag = move, Super+right drag = resize (tiled or floating)
 floating_modifier $mod normal
 tiling_drag enable
-# Note: Hyprland's middle-button drag without a modifier has no sway
-# equivalent; use Super+left drag.
+# Middle-button drag without a modifier moves windows: needs the
+# middle-drag.patch build of swayfx (see README.md).
 
 ### Apps (keybinding.lua)
 bindsym $mod+Return exec $term
