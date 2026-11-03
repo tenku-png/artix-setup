@@ -360,6 +360,7 @@ install_group() { # repo packages of a group
 	if [ -n "$p" ]; then in_chroot "pacman -S --needed --noconfirm --ask=4 $p"; fi
 }
 AUR_PKGS=()
+AUR_FAILED=()
 add_aur() { local p; while read -r p; do [ -n "$p" ] && AUR_PKGS+=("$p"); done < <(pkgs "$1" aur); }
 
 say "GPU drivers"
@@ -396,8 +397,11 @@ retry as_user "cd /tmp && rm -rf paru-bin && git clone https://aur.archlinux.org
 
 if [ ${#AUR_PKGS[@]} -gt 0 ]; then
 	say "AUR packages: ${AUR_PKGS[*]}"
-	retry as_user "paru -S --needed --noconfirm --skipreview ${AUR_PKGS[*]}" ||
-		warn "some AUR packages failed; retry later with: paru -S ${AUR_PKGS[*]}"
+	# One by one: a single failing package must not take the others down
+	for p in "${AUR_PKGS[@]}"; do
+		say "AUR: $p"
+		retry as_user "paru -S --needed --noconfirm --skipreview $p" || AUR_FAILED+=("$p")
+	done
 fi
 
 if [ "$WMSEL" != 1 ]; then
@@ -476,6 +480,11 @@ in_chroot "chown -R $USERNAME: /home/$USERNAME"
 printf 'permit persist :wheel\n' > "$MNT/etc/doas.conf"
 
 say "Done."
+if [ ${#AUR_FAILED[@]} -gt 0 ]; then
+	warn "These AUR packages did not install: ${AUR_FAILED[*]}"
+	warn "After the first boot retry them with: paru -S ${AUR_FAILED[*]}"
+	printf '%s\n' "paru -S --needed ${AUR_FAILED[*]}" >> "$H/first-login.sh"
+fi
 cat <<EOF
 
   Reboot, remove the ISO, log in as $USERNAME on tty1: $DEFAULT_WM starts.
