@@ -110,6 +110,10 @@ cat >&2 <<EOF
   ${c_b}2)${c_0} Install into ${c_g}one partition${c_0}, leave all other partitions alone (PC)
 EOF
 MODE=$(ask "Choice" 2)
+if [ "$MODE" != 1 ] && [ ${#PARTS[@]} -eq 0 ]; then
+	warn "There are no partitions yet (empty disk), so option 2 has nothing to use."
+	yes_no "Erase a whole disk instead (option 1)?" y && MODE=1 || die "nothing to do; create partitions first or choose option 1"
+fi
 
 if [ "$MODE" = 1 ]; then
 	DISK=$(pick "Which disk should be erased completely?" "${DISKS[@]}")
