@@ -62,6 +62,8 @@ printf '%s\n' '# AmneziaWG tunnel awg0. /etc/dinit.d/awg' 'type         = script
 	'command      = /usr/bin/awg-quick up awg0' 'stop-command = /usr/bin/awg-quick down awg0' \
 	'depends-on   = network.target' | doas tee /etc/dinit.d/awg >/dev/null
 doas ln -sf /etc/dinit.d/awg /etc/dinit.d/boot.d/awg
+# let openresolv own /etc/resolv.conf (dhcpcd/the GUI wrote it before)
+doas resolvconf -u 2>/dev/null || true
 doas dinitctl restart awg 2>/dev/null || doas dinitctl start awg
 
 sleep 2
