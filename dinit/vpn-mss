@@ -1,0 +1,5 @@
+# Load the VPN MSS clamp rules at boot. /etc/dinit.d/vpn-mss
+type    = scripted
+command = /usr/bin/nft -f /etc/nftables.d/vpn-mss.nft
+stop-command = /usr/bin/nft delete table inet vpn_mss
+depends-on = network.target
