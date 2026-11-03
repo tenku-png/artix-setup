@@ -1,0 +1,197 @@
+# SwayFX config ported from the Hyprland setup (hypr/conf/*.lua).
+# Install to ~/.config/sway/config. Check with: sway --validate
+
+### Variables
+set $mod Mod4
+set $term footclient
+set $files thunar
+set $browser zen-browser
+set $menu bemenu-run
+
+### Monitors (monitors.lua). Ignored when the outputs are missing (e.g. in a VM).
+output DP-2 mode 3440x1440@180Hz position 0 0 scale 1
+output DP-1 mode 1920x1080@170Hz position 3440 0 scale 1 transform 270
+output * adaptive_sync on
+output * allow_tearing yes
+output * bg #1e1e2e solid_color
+# Wallpaper instead of a solid color (decoded image costs RAM):
+# output * bg ~/Pictures/wall.png fill
+
+### Input (input.lua)
+input type:keyboard {
+    xkb_layout us,ru
+    xkb_options grp:caps_toggle
+    xkb_numlock enabled
+    repeat_delay 250
+    repeat_rate 35
+}
+input type:touchpad {
+    natural_scroll enabled
+    tap enabled
+    dwt enabled
+    click_method clickfinger
+    scroll_factor 0.7
+}
+focus_follows_mouse yes
+
+### Look (appearance.lua): gaps 1/5, no borders, no rounding, 0.9 opacity, blur
+gaps inner 1
+gaps outer 5
+default_border none
+default_floating_border none
+hide_edge_borders smart
+titlebar_padding 1
+
+# SwayFX effects
+corner_radius 0
+blur enable
+blur_passes 4
+blur_radius 4
+blur_noise 0.02
+blur_brightness 0.9
+blur_contrast 0.9
+blur_saturation 1.2
+shadows disable
+default_dim_inactive 0.05
+for_window [app_id=".*"] opacity 0.9
+for_window [class=".*"] opacity 0.9
+layer_effects "launcher" blur enable
+scratchpad_minimize disable
+
+### Window rules (windowrule.lua)
+for_window [title="^Open File"] floating enable, move position center
+for_window [title="^Save As"] floating enable, move position center
+for_window [title="^File Upload"] floating enable, move position center
+for_window [title="^[Pp]icture.in.[Pp]icture"] floating enable, sticky enable
+for_window [app_id="^(foot|footclient|kitty)$"] floating enable, resize set 1000 640, move position center
+for_window [app_id="^(nemo|thunar|Thunar|nautilus)$"] floating enable, resize set 1000 640, move position center
+# Games: allow tearing like Hyprland's "immediate"
+for_window [class="^steam_app"] allow_tearing yes
+for_window [title=".*[Mm]inecraft.*"] allow_tearing yes
+
+### Mouse
+# Super+left drag = move, Super+right drag = resize (tiled or floating)
+floating_modifier $mod normal
+tiling_drag enable
+# Note: Hyprland's middle-button drag without a modifier has no sway
+# equivalent; use Super+left drag.
+
+### Apps (keybinding.lua)
+bindsym $mod+Return exec $term
+bindsym $mod+c exec $term
+bindsym Ctrl+Alt+t exec $term
+bindsym $mod+e exec $files
+bindsym $mod+w exec $browser
+bindsym $mod+r exec $menu
+bindsym F1 exec python3 ~/.config/hypr/scripts/autoclicker.py start
+bindsym F2 exec python3 ~/.config/hypr/scripts/autoclicker.py stop
+
+### Windows
+bindsym $mod+q kill
+bindsym $mod+x kill
+bindsym $mod+f fullscreen toggle
+# No "maximize" in sway: tabbed layout is the closest (one window fills the area)
+bindsym $mod+d layout toggle tabbed split
+bindsym $mod+p sticky toggle
+bindsym $mod+b floating toggle
+bindsym $mod+semicolon resize shrink width 10 ppt
+bindsym $mod+apostrophe resize grow width 10 ppt
+bindsym Ctrl+$mod+backslash floating enable, resize set 640 480
+
+bindsym $mod+Left focus left
+bindsym $mod+Right focus right
+bindsym $mod+Up focus up
+bindsym $mod+Down focus down
+bindsym $mod+Shift+Left move left
+bindsym $mod+Shift+Right move right
+bindsym $mod+Shift+Up move up
+bindsym $mod+Shift+Down move down
+bindsym $mod+Alt+Left resize shrink width 20 px
+bindsym $mod+Alt+Right resize grow width 20 px
+bindsym $mod+Alt+Up resize shrink height 20 px
+bindsym $mod+Alt+Down resize grow height 20 px
+
+### Special workspace (Super+S) -> sway scratchpad (floating overlay)
+bindsym $mod+s scratchpad show
+bindsym $mod+Alt+s move scratchpad
+
+### Workspaces 1..10
+bindsym $mod+1 workspace number 1
+bindsym $mod+2 workspace number 2
+bindsym $mod+3 workspace number 3
+bindsym $mod+4 workspace number 4
+bindsym $mod+5 workspace number 5
+bindsym $mod+6 workspace number 6
+bindsym $mod+7 workspace number 7
+bindsym $mod+8 workspace number 8
+bindsym $mod+9 workspace number 9
+bindsym $mod+0 workspace number 10
+bindsym $mod+Shift+1 move container to workspace number 1
+bindsym $mod+Shift+2 move container to workspace number 2
+bindsym $mod+Shift+3 move container to workspace number 3
+bindsym $mod+Shift+4 move container to workspace number 4
+bindsym $mod+Shift+5 move container to workspace number 5
+bindsym $mod+Shift+6 move container to workspace number 6
+bindsym $mod+Shift+7 move container to workspace number 7
+bindsym $mod+Shift+8 move container to workspace number 8
+bindsym $mod+Shift+9 move container to workspace number 9
+bindsym $mod+Shift+0 move container to workspace number 10
+bindsym $mod+Alt+1 move container to workspace number 1
+bindsym $mod+Alt+2 move container to workspace number 2
+bindsym $mod+Alt+3 move container to workspace number 3
+bindsym $mod+Alt+4 move container to workspace number 4
+bindsym $mod+Alt+5 move container to workspace number 5
+bindsym $mod+Alt+6 move container to workspace number 6
+bindsym $mod+Alt+7 move container to workspace number 7
+bindsym $mod+Alt+8 move container to workspace number 8
+bindsym $mod+Alt+9 move container to workspace number 9
+bindsym $mod+Alt+0 move container to workspace number 10
+
+bindsym Ctrl+$mod+Right workspace next_on_output
+bindsym Ctrl+$mod+Left workspace prev_on_output
+bindsym $mod+Next workspace next_on_output
+bindsym $mod+Prior workspace prev_on_output
+bindsym $mod+Shift+Next move container to workspace next_on_output
+bindsym $mod+Shift+Prior move container to workspace prev_on_output
+bindsym --whole-window $mod+button4 workspace prev_on_output
+bindsym --whole-window $mod+button5 workspace next_on_output
+
+### Screenshots (grim + slurp + wl-clipboard)
+bindsym $mod+Shift+s exec grim -g "$(slurp)" - | wl-copy
+bindsym Alt+c exec mkdir -p ~/Pictures/Screenshots && grim -g "$(slurp)" ~/Pictures/Screenshots/$(date +%F_%H-%M-%S).png
+
+### Audio (wpctl)
+bindsym --locked $mod+Shift+m exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+bindsym --locked $mod+Alt+m exec wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+bindsym --locked XF86AudioRaiseVolume exec wpctl set-volume -l 1.5 @DEFAULT_AUDIO_SINK@ 2%+
+bindsym --locked XF86AudioLowerVolume exec wpctl set-volume @DEFAULT_AUDIO_SINK@ 2%-
+bindsym --locked XF86AudioMute exec wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+bindsym --locked XF86AudioMicMute exec wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+
+### Session
+bindsym --locked $mod+Shift+l exec loginctl suspend || doas zzz
+bindsym Ctrl+Shift+Alt+$mod+Delete exec loginctl poweroff || doas poweroff
+bindsym $mod+Shift+Alt+q exit
+bindsym $mod+Shift+c reload
+
+### Bar: swaybar with a tiny status line (one shell + sleep, ~1 MiB)
+bar {
+    position top
+    height 22
+    font pango:JetBrainsMono Nerd Font 10
+    status_command while date +'%H:%M  %d.%m'; do sleep 20; done
+    colors {
+        background #1e1e2ee6
+        statusline #cdd6f4
+        focused_workspace #45475a #45475a #cdd6f4
+        inactive_workspace #1e1e2e00 #1e1e2e00 #7f849c
+    }
+}
+
+### Autostart (autostart.lua). Each line is a background process (RAM).
+exec foot --server
+# Clipboard history like Hyprland (2 extra processes):
+# exec wl-paste --type text --watch cliphist store
+# exec wl-paste --type image --watch cliphist store
+# Dwindle-like auto tiling (1 small process):
+# exec autotiling-rs
