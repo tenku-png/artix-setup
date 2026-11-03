@@ -343,7 +343,7 @@ fi
 # ---------------------------------------------------------------- packages
 install_group() { # repo packages of a group
 	local p; p=$(pkgs "$1" repo | tr '\n' ' ')
-	if [ -n "$p" ]; then in_chroot "pacman -S --needed --noconfirm $p"; fi
+	if [ -n "$p" ]; then in_chroot "pacman -S --needed --noconfirm --ask=4 $p"; fi
 }
 AUR_PKGS=()
 add_aur() { local p; while read -r p; do [ -n "$p" ] && AUR_PKGS+=("$p"); done < <(pkgs "$1" aur); }
@@ -358,9 +358,11 @@ case $GPU in
 esac
 
 say "Desktop packages"
-in_chroot "pacman -S --needed --noconfirm ttf-dejavu"   # provider for ttf-font, avoids a prompt
-install_group desktop.txt; add_aur desktop.txt
+# Install the preferred providers first so --noconfirm never picks the wrong
+# one (jack2 instead of pipewire-jack, a random ttf-font, ...)
+in_chroot "pacman -S --needed --noconfirm ttf-dejavu pipewire pipewire-jack pipewire-pulse"
 install_group audio.txt;   add_aur audio.txt
+install_group desktop.txt; add_aur desktop.txt
 [ "$WMSEL" != 2 ] && install_group lilith.txt
 [ "$WMSEL" != 1 ] && install_group swayfx.txt
 install_group net.txt
