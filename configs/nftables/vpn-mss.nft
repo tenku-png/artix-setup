@@ -1,12 +1,18 @@
 # Clamp TCP MSS to the route MTU on VPN interfaces, so large transfers
 # (video, downloads) do not stall when the tunnel MTU is smaller.
 table inet vpn_mss {
-	chain out {
+	chain clamp_out {
 		type filter hook output priority mangle; policy accept;
-		oifname { "amn*", "tun*", "wg*", "awg*" } tcp flags syn tcp option maxseg size set rt mtu
+		oifname "amn*" tcp flags syn tcp option maxseg size set rt mtu
+		oifname "tun*" tcp flags syn tcp option maxseg size set rt mtu
+		oifname "wg*" tcp flags syn tcp option maxseg size set rt mtu
+		oifname "awg*" tcp flags syn tcp option maxseg size set rt mtu
 	}
-	chain fwd {
+	chain clamp_fwd {
 		type filter hook forward priority mangle; policy accept;
-		oifname { "amn*", "tun*", "wg*", "awg*" } tcp flags syn tcp option maxseg size set rt mtu
+		oifname "amn*" tcp flags syn tcp option maxseg size set rt mtu
+		oifname "tun*" tcp flags syn tcp option maxseg size set rt mtu
+		oifname "wg*" tcp flags syn tcp option maxseg size set rt mtu
+		oifname "awg*" tcp flags syn tcp option maxseg size set rt mtu
 	}
 }
