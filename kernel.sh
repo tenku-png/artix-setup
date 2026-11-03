@@ -64,6 +64,7 @@ doas install -m644 arch/x86/boot/bzImage "/boot/vmlinuz-$NAME"
 # dkms modules (nvidia, amneziawg) need the build tree: /usr/lib/modules/$KVER/build
 doas ln -sfn "$PWD" "/usr/lib/modules/$KVER/build"
 doas dkms autoinstall -k "$KVER" || echo "!! dkms failed: NVIDIA/AmneziaWG may be missing on $NAME"
+doas depmod -a "$KVER"
 doas mkinitcpio -k "$KVER" -g "/boot/initramfs-$NAME.img"
 
 echo "==> boot entry \"Artix-mini\" (zen entry \"Artix\" is kept)"
