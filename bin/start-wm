@@ -1,0 +1,28 @@
+#!/bin/sh
+# Start the chosen compositor from a TTY: start-wm [lilith|sway]
+# Default comes from ~/.config/wm (written by install.sh).
+WM=${1:-$(cat "$HOME/.config/wm" 2>/dev/null || echo lilith)}
+
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}"
+mkdir -p -m 700 "$XDG_RUNTIME_DIR"
+export XDG_SESSION_TYPE=wayland MOZ_ENABLE_WAYLAND=1 QT_QPA_PLATFORM="wayland;xcb"
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+
+SWAYFLAGS=
+if grep -q '^nvidia_drm ' /proc/modules 2>/dev/null; then
+	export GBM_BACKEND=nvidia-drm __GLX_VENDOR_LIBRARY_NAME=nvidia
+	SWAYFLAGS=--unsupported-gpu
+fi
+
+case "$WM" in
+lilith)
+	export XDG_CURRENT_DESKTOP=wlroots
+	# CPU rendering keeps lilith small; set WLR_RENDERER=gles2 to use the GPU
+	export WLR_RENDERER="${WLR_RENDERER:-pixman}"
+	exec dbus-run-session lilith -s session-apps ;;
+sway|swayfx)
+	export XDG_CURRENT_DESKTOP=sway
+	exec dbus-run-session sway $SWAYFLAGS ;;
+*)
+	echo "start-wm: unknown compositor '$WM' (lilith or sway)" >&2; exit 1 ;;
+esac

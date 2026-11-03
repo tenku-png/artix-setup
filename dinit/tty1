@@ -1,0 +1,7 @@
+# Single login console on tty1 (no autologin). /etc/dinit.d/tty1
+type            = process
+command         = /sbin/agetty --noclear tty1 linux
+depends-on      = login.target
+restart         = true
+smooth-recovery = true
+termsignal      = HUP

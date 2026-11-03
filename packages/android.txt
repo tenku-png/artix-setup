@@ -1,1 +1,2 @@
 android-tools scrcpy jadx
+aur:android-studio aur:android-apktool-bin aur:uber-apk-signer-bin

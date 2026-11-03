@@ -1,1 +1,2 @@
 pipewire pipewire-alsa pipewire-pulse pipewire-jack wireplumber gst-plugin-pipewire libpulse
+aur:libdeep_filter_ladspa-bin

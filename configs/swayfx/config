@@ -83,6 +83,9 @@ bindsym Ctrl+Alt+t exec $term
 bindsym $mod+e exec $files
 bindsym $mod+w exec $browser
 bindsym $mod+r exec $menu
+bindsym $mod+v exec clip-pick
+bindsym $mod+Shift+v exec bemoji -t
+bindsym $mod+m exec mic-monitor
 bindsym F1 exec python3 ~/.config/hypr/scripts/autoclicker.py start
 bindsym F2 exec python3 ~/.config/hypr/scripts/autoclicker.py stop
 
@@ -188,10 +191,7 @@ bar {
     }
 }
 
-### Autostart (autostart.lua). Each line is a background process (RAM).
-exec foot --server
-# Clipboard history like Hyprland (2 extra processes):
-# exec wl-paste --type text --watch cliphist store
-# exec wl-paste --type image --watch cliphist store
+### Autostart: pipewire, foot server, mako, clipboard history (bin/session-apps)
+exec session-apps
 # Dwindle-like auto tiling (1 small process):
 # exec autotiling-rs

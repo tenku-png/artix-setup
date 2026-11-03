@@ -1,0 +1,4 @@
+# Replaces Artix's agetty (tty1..tty6) with nothing; dinit/tty1 runs the
+# only console. /etc/dinit.d/agetty
+type       = internal
+depends-on = login.target

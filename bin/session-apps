@@ -1,0 +1,10 @@
+#!/bin/sh
+# Background services for a Wayland session (started by lilith -s / sway exec).
+pipewire &
+sleep 0.3
+pipewire-pulse &
+wireplumber &
+foot --server &
+mako &
+wl-paste --type text  --watch cliphist store &
+wl-paste --type image --watch cliphist store &

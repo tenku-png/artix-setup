@@ -1,0 +1,4 @@
+#!/bin/sh
+# Used RAM the way htop/fetch tools count it.
+awk '/MemTotal/{t=$2}/MemFree/{f=$2}/^Buffers/{b=$2}/^Cached/{c=$2}/SReclaimable/{s=$2}
+END{printf "used: %d MiB\n",(t-f-b-c-s)/1024}' /proc/meminfo

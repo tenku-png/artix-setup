@@ -1,7 +1,8 @@
 # Shared by lilith and SwayFX
 foot grim slurp wl-clipboard bemenu-wayland swaybg cliphist
 xdg-desktop-portal-wlr xdg-utils qt5-wayland qt6-wayland
-polkit mako
+polkit mako wtype
 thunar thunar-archive-plugin tumbler ffmpegthumbnailer
 ttf-jetbrains-mono-nerd ttf-dejavu ttf-liberation noto-fonts-cjk noto-fonts-emoji papirus-icon-theme
 fish btop fastfetch cava
+aur:zen-browser-bin aur:vesktop-bin aur:bemoji yazi
