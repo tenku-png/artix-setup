@@ -72,7 +72,10 @@ pkgs() { # pkgs file repo|aur
 [ "$(id -u)" = 0 ] || die "run as root"
 [ -d /sys/firmware/efi/efivars ] || die "not booted in UEFI mode (enable UEFI in the VM/PC firmware settings)"
 command -v basestrap >/dev/null || die "basestrap not found: run this from the Artix ISO"
-ping -c1 -W3 artixlinux.org >/dev/null 2>&1 || die "no network (try: dinitctl start dhcpcd)"
+# HTTPS check (ping/ICMP is blocked on some networks even when the web works)
+curl -fsS --max-time 15 -o /dev/null https://github.com 2>/dev/null ||
+	curl -fsS --max-time 15 -o /dev/null https://artixlinux.org 2>/dev/null ||
+	die "no network (try: dinitctl start dhcpcd)"
 
 pacman -Sy --needed --noconfirm git >/dev/null
 # A stalled connection makes git hang forever; abort slow transfers after
