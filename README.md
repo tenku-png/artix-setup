@@ -30,7 +30,7 @@ The installer asks for:
   partition can be mounted at boot without being touched
   (e.g. `/dev/sda3:/mnt/ports`)
 - swap file size (btrfs swapfile in the `@swap` subvolume)
-- hostname, user, passwords, timezone (default `Asia/Novosibirsk`, GMT+7)
+- hostname, user, passwords, timezone
 - GPU (NVIDIA proprietary / AMD / VM), network (DHCP or static)
 - desktop (lilith, SwayFX or both) and optional groups
 
@@ -42,7 +42,7 @@ doas, Artix lib32 + Arch extra/multilib, paru, the package groups from
 libvirt over its socket, AmneziaVPN as a dinit service.
 
 After the first boot: log in on tty1 (the default compositor starts),
-then run `~/first-login.sh` once (moegram, Sober).
+then run `~/first-login.sh` once (Sober).
 
 ## Layout
 

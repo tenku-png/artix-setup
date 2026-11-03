@@ -1,4 +1,4 @@
 github-cli go nodejs npm python-pip python-pillow clang cmake meson ninja patchelf
 jdk-openjdk jre17-openjdk-headless dotnet-sdk lite-xl
-# moegram build deps
+# C++/Qt app build deps
 boost range-v3 microsoft-gsl tl-expected libtg_owt glib2-devel gobject-introspection gperf vulkan-headers tk

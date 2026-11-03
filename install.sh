@@ -149,11 +149,12 @@ SWAP_GB=$(ask "Swap size in GB (0 = no swap; 8 is good for Minecraft)" 8)
 [[ $SWAP_GB =~ ^[0-9]+$ ]] || die "swap size must be a number"
 
 step "Step 2/5: user"
-HOST=$(ask "Hostname" null)
+HOST=$(ask "Hostname" "")
+[ -n "$HOST" ] || die "hostname is required"
 USERNAME=$(ask "Username" "")
 [ -n "$USERNAME" ] || die "username is required"
-TIMEZONE=$(ask "Timezone" Asia/Novosibirsk)
-[ -f "/usr/share/zoneinfo/$TIMEZONE" ] || die "unknown timezone $TIMEZONE"
+TIMEZONE=$(ask "Timezone (e.g. Europe/Berlin)" "")
+[ -n "$TIMEZONE" ] && [ -f "/usr/share/zoneinfo/$TIMEZONE" ] || die "unknown timezone: ${TIMEZONE:-empty} (see ls /usr/share/zoneinfo)"
 ROOT_PASS=$(ask_pass "root password")
 USER_PASS=$(ask_pass "$USERNAME password")
 
@@ -178,14 +179,13 @@ DEFAULT_WM=lilith; [ "$WMSEL" = 2 ] && DEFAULT_WM=sway
 step "Step 5/5: software"
 declare -A OPT
 for g in dev android reverse games virt printer; do OPT[$g]=n; done
-yes_no "Development (languages, moegram build deps, lite-xl)?" y && OPT[dev]=y
+yes_no "Development (languages, C++/Qt build deps, lite-xl)?" y && OPT[dev]=y
 yes_no "Android (Studio, adb, scrcpy, jadx, apktool)?"         y && OPT[android]=y
 yes_no "Reverse engineering (ghidra, il2cpp-dumper)?"          y && OPT[reverse]=y
 yes_no "Games (Steam, Prism Launcher, Flatpak + Sober)?"       y && OPT[games]=y
 yes_no "Virtual machines (QEMU + virt-manager)?"               y && OPT[virt]=y
 yes_no "Printer/scanner (only started when needed)?"           n && OPT[printer]=y
 AMNEZIA=n; yes_no "AmneziaVPN?" y && AMNEZIA=y
-MOEGRAM=n; yes_no "moegram (installed on first login)?" y && MOEGRAM=y
 
 # ---------------------------------------------------------------- plan
 step "Plan"
@@ -210,7 +210,7 @@ cat <<EOF
 ${c_b}System:${c_0} $HOST, user $USERNAME, timezone $TIMEZONE, swap ${SWAP_GB} GB
 ${c_b}Desktop:${c_0} $(case $WMSEL in 1) echo lilith;; 2) echo SwayFX;; *) echo "lilith + SwayFX";; esac), starts: $DEFAULT_WM
 ${c_b}GPU:${c_0} $(case $GPU in 1) echo NVIDIA;; 2) echo AMD;; *) echo "other/VM";; esac)   ${c_b}Network:${c_0} $([ "$NET" = 1 ] && echo DHCP || echo "static $ADDR")
-${c_b}Groups:${c_0} $(for g in dev android reverse games virt printer; do [ "${OPT[$g]}" = y ] && printf '%s ' "$g"; done)$([ "$AMNEZIA" = y ] && printf 'amnezia ')$([ "$MOEGRAM" = y ] && printf 'moegram')
+${c_b}Groups:${c_0} $(for g in dev android reverse games virt printer; do [ "${OPT[$g]}" = y ] && printf '%s ' "$g"; done)$([ "$AMNEZIA" = y ] && printf 'amnezia')
 EOF
 
 [ "$DRY_RUN" = y ] && { say "Dry run: nothing was changed."; exit 0; }
@@ -444,7 +444,6 @@ cat > "$H/first-login.sh" <<EOF
 #!/bin/sh
 # One-time setup after the first boot. Run it, then delete it.
 set -e
-$( [ "$MOEGRAM" = y ] && echo 'curl -fsSL https://raw.githubusercontent.com/tenku-png/moegram/main/install.sh | sh' )
 $( [ "${OPT[games]}" = y ] && echo 'flatpak install -y flathub org.vinegarhq.Sober' )
 echo "first-login: done"
 EOF
