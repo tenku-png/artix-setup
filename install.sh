@@ -224,6 +224,8 @@ for i in 5 4 3 2 1; do printf '\rStarting in %s... (Ctrl+C to cancel) ' "$i"; sl
 
 # ---------------------------------------------------------------- disks
 say "Partitioning and formatting"
+# Leftovers from an earlier (failed) run keep the disk busy
+swapoff -a 2>/dev/null || true
 umount -R "$MNT" 2>/dev/null || true
 if [ "$MODE" = 1 ]; then
 	wipefs -af "$DISK"
