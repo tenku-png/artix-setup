@@ -181,6 +181,14 @@ if [ "$NET" = 2 ]; then
 	DNS=$(ask "DNS" 1.1.1.1)
 fi
 
+echo "Mirror for Arch packages (Steam, ghidra, ...): 1) default list  2) mirror.yandex.ru  3) mirror.truenetwork.ru  4) other URL" >&2
+case $(ask "Mirror" 2) in
+	2) ARCH_MIRROR='https://mirror.yandex.ru/archlinux/$repo/os/$arch' ;;
+	3) ARCH_MIRROR='https://mirror.truenetwork.ru/archlinux/$repo/os/$arch' ;;
+	4) ARCH_MIRROR=$(ask "Server URL (with \$repo/os/\$arch)" "") ;;
+	*) ARCH_MIRROR= ;;
+esac
+
 step "Step 4/5: desktop"
 echo "1) lilith (lightest)  2) SwayFX (blur, tiling)  3) both" >&2
 WMSEL=$(ask "Desktop" 3)
@@ -316,6 +324,7 @@ sed -i "s/^#\?MAKEFLAGS=.*/MAKEFLAGS=\"-j$(nproc)\"/" "$MNT/etc/makepkg.conf"
 say "Enabling lib32 and Arch repositories"
 sed -i '/^#\[lib32\]/{s/^#//;n;s/^#//}' "$MNT/etc/pacman.conf"
 in_chroot "pacman -Sy --needed --noconfirm artix-archlinux-support"
+[ -n "$ARCH_MIRROR" ] && sed -i "1i Server = $ARCH_MIRROR" "$MNT/etc/pacman.d/mirrorlist-arch"
 grep -q '^\[extra\]' "$MNT/etc/pacman.conf" || cat >> "$MNT/etc/pacman.conf" <<'EOF'
 
 [extra]
