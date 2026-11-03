@@ -53,6 +53,9 @@ doas modprobe amneziawg
 
 echo "==> config -> /etc/amnezia/amneziawg/awg0.conf"
 doas install -Dm600 "$CONF" /etc/amnezia/amneziawg/awg0.conf
+# keep NAT mappings alive (prevents the tunnel going quiet behind the router)
+doas grep -q '^PersistentKeepalive' /etc/amnezia/amneziawg/awg0.conf ||
+	doas sed -i '/^\[Peer\]/a PersistentKeepalive = 25' /etc/amnezia/amneziawg/awg0.conf
 
 echo "==> stop the Amnezia GUI service (no longer needed)"
 doas dinitctl stop amneziavpn >/dev/null 2>&1 || true
@@ -65,6 +68,14 @@ doas ln -sf /etc/dinit.d/awg /etc/dinit.d/boot.d/awg
 # let openresolv own /etc/resolv.conf (dhcpcd/the GUI wrote it before)
 doas resolvconf -u 2>/dev/null || true
 doas dinitctl restart awg 2>/dev/null || doas dinitctl start awg
+
+echo "==> watchdog (restarts the tunnel if it stops working)"
+R="https://raw.githubusercontent.com/tenku-png/artix-setup/${REF:-main}"
+curl -fsSL "$R/bin/awg-watch" | doas tee /usr/local/bin/awg-watch >/dev/null
+doas chmod +x /usr/local/bin/awg-watch
+curl -fsSL "$R/dinit/awg-watch" | doas tee /etc/dinit.d/awg-watch >/dev/null
+doas ln -sf /etc/dinit.d/awg-watch /etc/dinit.d/boot.d/awg-watch
+doas dinitctl start awg-watch >/dev/null 2>&1 || true
 
 sleep 2
 doas awg show awg0 | head -8

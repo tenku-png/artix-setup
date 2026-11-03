@@ -1,0 +1,17 @@
+#!/bin/sh
+# Keep the AmneziaWG tunnel awg0 alive: bring it up if missing, restart it
+# when the last handshake is older than 3 minutes. Run by dinit (awg-watch).
+IF=${1:-awg0}
+while :; do
+	if ! ip link show "$IF" >/dev/null 2>&1; then
+		awg-quick up "$IF" >/dev/null 2>&1
+	else
+		hs=$(awg show "$IF" latest-handshakes 2>/dev/null | awk '{print $2; exit}')
+		now=$(date +%s)
+		if [ -n "$hs" ] && [ "$hs" -gt 0 ] && [ $((now - hs)) -gt 180 ]; then
+			awg-quick down "$IF" >/dev/null 2>&1
+			awg-quick up "$IF" >/dev/null 2>&1
+		fi
+	fi
+	sleep 30
+done

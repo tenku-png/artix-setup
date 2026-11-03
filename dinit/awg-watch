@@ -1,0 +1,6 @@
+# Watchdog for the AmneziaWG tunnel. /etc/dinit.d/awg-watch
+type       = process
+command    = /usr/local/bin/awg-watch awg0
+depends-on = network.target
+restart    = true
+smooth-recovery = true
