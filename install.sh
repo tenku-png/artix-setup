@@ -436,6 +436,12 @@ if [ "$(tty)" = /dev/tty1 ] && [ -z "$WAYLAND_DISPLAY" ]; then exec start-wm; fi
 EOF
 in_chroot "chsh -s /usr/bin/fish $USERNAME" 2>/dev/null || true
 
+# Monitor brightness over DDC/CI (bar brightness module): i2c-dev + i2c group
+mkdir -p "$MNT/etc/modules-load.d" "$MNT/etc/udev/rules.d"
+echo i2c-dev > "$MNT/etc/modules-load.d/i2c-dev.conf"
+echo 'KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"' > "$MNT/etc/udev/rules.d/60-i2c-group.rules"
+in_chroot "getent group i2c >/dev/null || groupadd -r i2c; usermod -aG i2c $USERNAME"
+
 mkdir -p "$MNT/etc/polkit-1/rules.d"
 cp "$REPO/configs/polkit/50-wheel-noauth.rules" "$MNT/etc/polkit-1/rules.d/"
 

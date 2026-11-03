@@ -1,3 +1,3 @@
 #!/bin/sh
 # Pick an entry from the clipboard history (cliphist) with bemenu.
-cliphist list | bemenu -i -l 15 -p clipboard | cliphist decode | wl-copy
+cliphist list | bemenu -p clip | cliphist decode | wl-copy

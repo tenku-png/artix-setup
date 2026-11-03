@@ -5,4 +5,5 @@ polkit mako wtype
 thunar thunar-archive-plugin tumbler ffmpegthumbnailer
 ttf-jetbrains-mono-nerd ttf-dejavu ttf-liberation noto-fonts-cjk noto-fonts-emoji papirus-icon-theme
 fish btop fastfetch cava
+playerctl ddcutil brightnessctl
 aur:zen-browser-bin aur:vesktop-bin aur:bemoji yazi

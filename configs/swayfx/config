@@ -83,6 +83,7 @@ bindsym Ctrl+Alt+t exec $term
 bindsym $mod+e exec $files
 bindsym $mod+w exec $browser
 bindsym $mod+r exec $menu
+bindsym $mod+space exec $menu
 bindsym $mod+v exec clip-pick
 bindsym $mod+Shift+v exec bemoji -t
 bindsym $mod+m exec mic-monitor
