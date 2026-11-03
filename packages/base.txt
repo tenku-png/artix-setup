@@ -1,4 +1,5 @@
 # Installed by basestrap / always
 base dinit linux-firmware amd-ucode mkinitcpio btrfs-progs dosfstools efibootmgr
-seatd-dinit dbus-dinit openssh-dinit opendoas nano vim less
+seatd-dinit dbus-dinit opendoas nano vim less
+# optional: openssh openssh-dinit (installer asks)
 base-devel git pacman-contrib

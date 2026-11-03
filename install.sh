@@ -193,6 +193,7 @@ yes_no "Games (Steam, Prism Launcher, Flatpak + Sober)?"       y && OPT[games]=y
 yes_no "Virtual machines (QEMU + virt-manager)?"               y && OPT[virt]=y
 yes_no "Printer/scanner (only started when needed)?"           n && OPT[printer]=y
 AMNEZIA=n; yes_no "AmneziaVPN?" y && AMNEZIA=y
+SSHD=n; yes_no "SSH server (log in to this machine over the network)?" n && SSHD=y
 
 # ---------------------------------------------------------------- plan
 step "Plan"
@@ -217,7 +218,7 @@ cat <<EOF
 ${c_b}System:${c_0} $HOST, user $USERNAME, timezone $TIMEZONE, swap ${SWAP_GB} GB
 ${c_b}Desktop:${c_0} $(case $WMSEL in 1) echo lilith;; 2) echo SwayFX;; *) echo "lilith + SwayFX";; esac), starts: $DEFAULT_WM
 ${c_b}GPU:${c_0} $(case $GPU in 1) echo NVIDIA;; 2) echo AMD;; *) echo "other/VM";; esac)   ${c_b}Network:${c_0} $([ "$NET" = 1 ] && echo DHCP || echo "static $ADDR")
-${c_b}Groups:${c_0} $(for g in dev android reverse games virt printer; do [ "${OPT[$g]}" = y ] && printf '%s ' "$g"; done)$([ "$AMNEZIA" = y ] && printf 'amnezia')
+${c_b}Groups:${c_0} $(for g in dev android reverse games virt printer; do [ "${OPT[$g]}" = y ] && printf '%s ' "$g"; done)$([ "$AMNEZIA" = y ] && printf 'amnezia ')$([ "$SSHD" = y ] && printf 'sshd')
 EOF
 
 [ "$DRY_RUN" = y ] && { say "Dry run: nothing was changed."; exit 0; }
@@ -268,6 +269,7 @@ BASE=(base base-devel dinit linux-zen linux-zen-headers linux-firmware "$UCODE"
 	mkinitcpio btrfs-progs dosfstools efibootmgr seatd-dinit dbus-dinit
 	opendoas nano git)
 [ "$NET" = 1 ] && BASE+=(dhcpcd-dinit)
+[ "$SSHD" = y ] && BASE+=(openssh openssh-dinit)
 retry basestrap "$MNT" "${BASE[@]}"
 fstabgen -U "$MNT" >> "$MNT/etc/fstab"
 for m in "${EXTRA_MOUNTS[@]}"; do
@@ -328,6 +330,7 @@ say "Services"
 cp "$REPO/dinit/agetty" "$REPO/dinit/tty1" "$MNT/etc/dinit.d/"
 link() { ln -sf "/etc/dinit.d/$1" "$MNT/etc/dinit.d/boot.d/$1"; }
 link tty1; link seatd; link dbus
+[ "$SSHD" = y ] && link sshd
 if [ "$NET" = 1 ]; then
 	link dhcpcd
 else
