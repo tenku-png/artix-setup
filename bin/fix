@@ -10,6 +10,6 @@ case $name in
 	""|-h|--help) echo "usage: fix trim | gpu | net | awg FILE | awgwatch | kernel | update | lilith | lilith-new"; exit 0 ;;
 esac
 # newest commit (avoids the 5 min cache of the main branch)
-sha=$(curl -fsSL "https://api.github.com/repos/$R/commits/main" | grep -m1 '"sha"' | cut -d'"' -f4)
+sha=$(curl -fsSL "https://api.github.com/repos/$R/commits/main" 2>/dev/null | grep -m1 '"sha"' | cut -d'"' -f4)
 shift
 REF=${sha:-main} bash <(curl -fsSL "https://raw.githubusercontent.com/$R/${sha:-main}/$name.sh") "$@"

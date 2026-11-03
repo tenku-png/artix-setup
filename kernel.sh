@@ -33,7 +33,11 @@ make olddefconfig >/dev/null
 	printf '%s\n' usb_storage uas exfat vfat ntfs3 tun amneziawg uinput \
 		kvm kvm_amd vhost_net tap bridge snd_usb_audio hid_generic usbhid
 } | sort -u | awk '{print $1, 0, 0}' > lsmod.txt
+# (yes exits with SIGPIPE when make is done; only make's status matters)
+set +o pipefail
 yes "" | make LSMOD="$PWD/lsmod.txt" localmodconfig >/dev/null
+[ "${PIPESTATUS[1]}" = 0 ] || { echo "localmodconfig failed"; exit 1; }
+set -o pipefail
 
 S=scripts/config
 # not used on this PC
