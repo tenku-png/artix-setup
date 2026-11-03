@@ -4,7 +4,7 @@
 WM=${1:-$(cat "$HOME/.config/wm" 2>/dev/null || echo lilith)}
 
 # Both installed and no choice given: short menu on the console
-if [ -z "${1:-}" ] && [ -t 0 ] && command -v lilith >/dev/null && command -v sway >/dev/null; then
+if [ -z "${1:-}" ] && [ -t 0 ]; then
 	printf '\n  1) lilith   2) sway   3) shell      [Enter or 3 s = %s] ' "$WM"
 	read -r -t 3 c || c=
 	case $c in 1) WM=lilith ;; 2) WM=sway ;; 3) WM=shell ;; esac
@@ -41,10 +41,16 @@ lilith)
 			export WLR_RENDERER=pixman
 		fi
 	fi
-	exec dbus-run-session lilith -s session-apps ;;
+	dbus-run-session lilith -s session-apps ;;
 sway|swayfx)
 	export XDG_CURRENT_DESKTOP=sway
-	exec dbus-run-session sway $SWAYFLAGS ;;
+	dbus-run-session sway $SWAYFLAGS ;;
 *)
 	echo "start-wm: unknown compositor '$WM' (lilith or sway)" >&2; exit 1 ;;
 esac
+rc=$?
+if [ "$rc" -ne 0 ]; then
+	printf '\n%s exited with error %s. Dropping to a shell (type exit to log out).\n' "$WM" "$rc"
+	printf 'Checks:  fix gpu   |   lsmod | grep nvidia   |   start-wm sway\n'
+	exec "${SHELL:-/bin/bash}"
+fi
