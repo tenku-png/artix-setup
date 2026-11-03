@@ -1,12 +1,13 @@
 #!/bin/bash
 # fix <name>: run the latest <name>.sh from tenku-png/artix-setup
-#   fix trim | fix gpu | fix update
+#   fix trim | gpu | update | lilith | lilith-new
 R=tenku-png/artix-setup
 name=${1:-}
 case $name in
 	gpu) name=gpu-check ;;
 	update) name=fix ;;
-	""|-h|--help) echo "usage: fix trim | gpu | update"; exit 0 ;;
+	lilith-new) export LIWM_BRANCH=hyprland-config; name=lilith ;;
+	""|-h|--help) echo "usage: fix trim | gpu | update | lilith | lilith-new"; exit 0 ;;
 esac
 # newest commit (avoids the 5 min cache of the main branch)
 sha=$(curl -fsSL "https://api.github.com/repos/$R/commits/main" | grep -m1 '"sha"' | cut -d'"' -f4)
