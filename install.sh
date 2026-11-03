@@ -7,8 +7,7 @@ set -euo pipefail
 
 REPO_URL=https://github.com/tenku-png/artix-setup
 LIWM_URL=https://github.com/tenku-png/liwm
-LIWM_BRANCH=hyprland-config
-LIWM_COMMIT=2494315          # last lilith commit tested in a full VM install
+LIWM_BRANCH=stable          # tested build; new features land in hyprland-config first
 SWAYFX_AUR_COMMIT=9add1cd   # swayfx 0.5.3 (wlroots0.19, scenefx0.4)
 MNT=/mnt
 
@@ -418,7 +417,7 @@ fi
 
 if [ "$WMSEL" != 2 ]; then
 	say "lilith (liwm, branch $LIWM_BRANCH)"
-	retry as_user "rm -rf ~/liwm && git clone -b $LIWM_BRANCH $LIWM_URL ~/liwm && cd ~/liwm && git checkout -q $LIWM_COMMIT && make && doas make install" ||
+	retry as_user "rm -rf ~/liwm && git clone -b $LIWM_BRANCH $LIWM_URL ~/liwm && cd ~/liwm && make && doas make install" ||
 		warn "lilith build failed; retry in ~/liwm with: make && doas make install"
 fi
 
