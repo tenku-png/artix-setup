@@ -25,6 +25,8 @@ SWAYFLAGS=
 if grep -q '^nvidia_drm ' /proc/modules 2>/dev/null; then
 	export GBM_BACKEND=nvidia-drm __GLX_VENDOR_LIBRARY_NAME=nvidia
 	SWAYFLAGS=--unsupported-gpu
+	# NVIDIA hardware cursor planes can draw the pointer offset from where it is
+	export WLR_NO_HARDWARE_CURSORS=1
 	# A leftover firmware framebuffer (simpledrm) can show up as card0 next
 	# to the NVIDIA card; point wlroots at the NVIDIA card explicitly.
 	for c in /sys/class/drm/card[0-9]; do
