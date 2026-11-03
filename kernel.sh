@@ -72,10 +72,10 @@ EFI_DISK=/dev/$(lsblk -no PKNAME "$EFI_SRC" | head -1)
 EFI_NUM=$(cat "/sys/class/block/$(basename "$EFI_SRC")/partition")
 CMD=$(sed -e 's/initrd=[^ ]*//g' -e 's/BOOT_IMAGE=[^ ]*//' /proc/cmdline | tr -s ' ')
 UC=amd-ucode.img; [ -f /boot/intel-ucode.img ] && ! [ -f /boot/amd-ucode.img ] && UC=intel-ucode.img
-for n in $(efibootmgr | awk '/ Artix-mini$/{sub(/Boot/,"");sub(/\*.*/,"");print}'); do doas efibootmgr -q -b "$n" -B; done
+for n in $(efibootmgr | awk '/ Artix-mini([[:space:]]|$)/{sub(/Boot/,"");sub(/\*.*/,"");print}'); do doas efibootmgr -q -b "$n" -B; done
 doas efibootmgr -q --create --disk "$EFI_DISK" --part "$EFI_NUM" --label "Artix-mini" \
 	--loader "/vmlinuz-$NAME" --unicode "$CMD initrd=\\$UC initrd=\\initramfs-$NAME.img"
-MINI=$(efibootmgr | awk '/ Artix-mini$/{sub(/Boot/,"");sub(/\*.*/,"");print; exit}')
+MINI=$(efibootmgr | awk '/ Artix-mini([[:space:]]|$)/{sub(/Boot/,"");sub(/\*.*/,"");print; exit}')
 ORDER=$(efibootmgr | awk -F': ' '/^BootOrder/{print $2}')
 # Try it once on the next boot only; the normal order stays as it is
 doas efibootmgr -q -n "$MINI"
