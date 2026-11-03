@@ -1,0 +1,11 @@
+# Built with paru
+paru-bin
+zen-browser-bin
+amneziavpn-bin
+android-studio android-apktool-bin uber-apk-signer-bin
+il2cpp-dumper-bin
+elyprismlauncher-bin
+vesktop-bin
+libdeep_filter_ladspa-bin
+bemoji
+scenefx0.4

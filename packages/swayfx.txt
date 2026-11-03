@@ -1,0 +1,2 @@
+# swayfx 0.5.3 is built from AUR (see configs/swayfx/README.md); scenefx0.4 from AUR
+meson ninja

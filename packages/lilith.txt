@@ -1,0 +1,3 @@
+# Build deps for liwm (tenku-png/liwm, branch hyprland-config)
+wlroots0.19 libinput libxkbcommon libdrm fcft tllist pixman xorg-xwayland xcb-util-wm
+wayland wayland-protocols pkgconf

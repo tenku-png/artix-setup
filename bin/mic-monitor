@@ -1,0 +1,11 @@
+#!/bin/sh
+# Toggle hearing yourself: loops the cleaned mic ("mic_clean") into the
+# default output. Only runs (one small process) while monitoring is on.
+if pkill -f 'pw-loopback.*mic_monitor'; then
+    echo "mic monitor: off"
+else
+    pw-loopback --name mic_monitor \
+        --capture-props='target.object=mic_clean node.dont-reconnect=true' \
+        --latency=10ms >/dev/null 2>&1 &
+    echo "mic monitor: on"
+fi

@@ -1,0 +1,2 @@
+# Optional; cups runs only on demand (cups.socket)
+cups cups-dinit hplip sane-airscan simple-scan

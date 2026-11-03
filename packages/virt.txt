@@ -1,0 +1,1 @@
+qemu-desktop qemu-img libvirt libvirt-dinit virt-manager dnsmasq

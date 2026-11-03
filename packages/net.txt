@@ -1,0 +1,2 @@
+aria2 wget rsync nmap tcpdump traceroute openbsd-netcat nftables
+7zip unrar unzip zip ntfs-3g compsize smartmontools ddcutil
