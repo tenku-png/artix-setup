@@ -12,10 +12,12 @@ SWAYFX_AUR_COMMIT=9add1cd   # swayfx 0.5.3 (wlroots0.19, scenefx0.4)
 MNT=/mnt
 
 # ---------------------------------------------------------------- helpers
-c_b=$'\e[1m'; c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_0=$'\e[0m'
+DRY_RUN=n; [ "${1:-}" = "--dry-run" ] && DRY_RUN=y
+c_b=$'\e[1m'; c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 say()  { printf '%s==>%s %s\n' "$c_g$c_b" "$c_0" "$*"; }
-warn() { printf '%s==> %s%s\n' "$c_y" "$*" "$c_0"; }
+warn() { printf '%s==> %s%s\n' "$c_y" "$*" "$c_0" >&2; }
 die()  { printf '%s==> %s%s\n' "$c_r" "$*" "$c_0" >&2; exit 1; }
+step() { printf '\n%s=== %s ===%s\n' "$c_c$c_b" "$*" "$c_0" >&2; }
 ask()  { local a; read -rp "$1 [${2:-}]: " a; printf '%s' "${a:-${2:-}}"; }
 yes_no() { # yes_no "question" y|n
 	local a def=$2
@@ -28,11 +30,35 @@ ask_pass() {
 		read -rsp "$1: " p1; echo >&2
 		read -rsp "repeat: " p2; echo >&2
 		[ -n "$p1" ] && [ "$p1" = "$p2" ] && { printf '%s' "$p1"; return; }
-		warn "passwords are empty or do not match"
+		warn "password is empty or does not match, try again"
 	done
 }
+# pick "title" item... -> prints the chosen item (menu goes to stderr)
+pick() {
+	local title=$1; shift
+	local items=("$@") i n
+	[ ${#items[@]} -gt 0 ] || die "nothing to choose from: $title"
+	echo "$title" >&2
+	for i in "${!items[@]}"; do printf '  %s%2d)%s %s\n' "$c_b" $((i+1)) "$c_0" "$(describe "${items[$i]}")" >&2; done
+	while :; do
+		read -rp "Number: " n
+		[[ $n =~ ^[0-9]+$ ]] && [ "$n" -ge 1 ] && [ "$n" -le ${#items[@]} ] && { printf '%s' "${items[$((n-1))]}"; return; }
+		warn "enter a number from 1 to ${#items[@]}"
+	done
+}
+# "/dev/sda4  306G  btrfs  'label'  (now: /)"
+describe() {
+	local d=$1 size fs label mnt model
+	size=$(lsblk -dno SIZE "$d" | tr -d ' ')
+	if [ "$(lsblk -dno TYPE "$d")" = disk ]; then
+		model=$(lsblk -dno MODEL "$d" | sed 's/ *$//')
+		printf '%-12s %7s  disk %s' "$d" "$size" "${model:+($model)}"
+	else
+		fs=$(lsblk -dno FSTYPE "$d"); label=$(lsblk -dno LABEL "$d"); mnt=$(lsblk -dno MOUNTPOINTS "$d" | head -1)
+		printf '%-12s %7s  %-6s %s%s' "$d" "$size" "${fs:-empty}" "${label:+\"$label\" }" "${mnt:+(now: $mnt)}"
+	fi
+}
 part_dev() { case $1 in *nvme*|*mmcblk*|*loop*) echo "${1}p$2" ;; *) echo "${1}$2" ;; esac; }
-is_part()  { [ -b "$1" ] && [ "$(lsblk -no TYPE "$1" 2>/dev/null | head -1)" = part ]; }
 in_chroot() { artix-chroot "$MNT" /bin/bash -c "$1"; }
 retry() { local i; for i in 1 2 3; do "$@" && return 0; warn "failed (try $i/3), retrying..."; sleep 3; done; return 1; }
 as_user()   { artix-chroot "$MNT" /bin/su - "$USERNAME" -c "$1"; }
@@ -44,7 +70,7 @@ pkgs() { # pkgs file repo|aur
 
 # ---------------------------------------------------------------- checks
 [ "$(id -u)" = 0 ] || die "run as root"
-[ -d /sys/firmware/efi/efivars ] || die "not booted in UEFI mode (switch the VM/PC firmware to UEFI)"
+[ -d /sys/firmware/efi/efivars ] || die "not booted in UEFI mode (enable UEFI in the VM/PC firmware settings)"
 command -v basestrap >/dev/null || die "basestrap not found: run this from the Artix ISO"
 ping -c1 -W3 artixlinux.org >/dev/null 2>&1 || die "no network (try: dinitctl start dhcpcd)"
 
@@ -57,42 +83,68 @@ else
 	retry git clone --depth 1 "$REPO_URL" "$REPO"
 fi
 
+# Disk the ISO was booted from: never offered for wiping
+ISO_DISK=
+src=$(findmnt -no SOURCE /run/artix/bootmnt 2>/dev/null || true)
+[ -n "$src" ] && ISO_DISK=/dev/$(lsblk -no PKNAME "$src" 2>/dev/null | head -1)
+mapfile -t DISKS < <(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v -e zram -e loop | grep -vx "${ISO_DISK:-NONE}" || true)
+mapfile -t PARTS < <(lsblk -pnlo NAME,TYPE | awk '$2=="part"{print $1}' | grep -v "^${ISO_DISK:-NONE}" || true)
+
+clear 2>/dev/null || true
+cat <<EOF
+${c_b}Artix (dinit) + lilith / SwayFX installer${c_0}
+
+First come only questions. ${c_b}Nothing is changed${c_0} until the very end:
+you will see a plan (what gets erased, what stays) and have to
+confirm it. You can quit any time with Ctrl+C.
+$( [ "$DRY_RUN" = y ] && echo "${c_y}Dry run (--dry-run): the script exits after showing the plan.${c_0}" )
+EOF
+
 # ---------------------------------------------------------------- questions
-echo
-say "Disks:"
-lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS
-echo
-echo "  1) wipe a whole disk (clean VM / new disk): EFI 1G + btrfs"
-echo "  2) use existing partitions (keep other partitions untouched)"
-MODE=$(ask "Mode" 2)
+step "Step 1/5: where to install"
+echo "Your disks and partitions:" >&2
+lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINTS >&2
+cat >&2 <<EOF
+
+  ${c_b}1)${c_0} Erase a ${c_r}WHOLE disk${c_0} (clean VM or empty disk)
+  ${c_b}2)${c_0} Install into ${c_g}one partition${c_0}, leave all other partitions alone (PC)
+EOF
+MODE=$(ask "Choice" 2)
 
 if [ "$MODE" = 1 ]; then
-	DISK=$(ask "Disk to WIPE (e.g. /dev/vda, /dev/sda)" /dev/vda)
-	[ "$(lsblk -dno TYPE "$DISK" 2>/dev/null)" = disk ] || die "$DISK is not a disk"
+	DISK=$(pick "Which disk should be erased completely?" "${DISKS[@]}")
+	echo "This disk currently contains:" >&2; lsblk -o NAME,SIZE,FSTYPE,LABEL "$DISK" >&2
 	EFI=$(part_dev "$DISK" 1); ROOT=$(part_dev "$DISK" 2); FORMAT_EFI=y
 else
-	EFI=$(ask "EFI partition (FAT32, e.g. /dev/sda1)" /dev/sda1)
-	ROOT=$(ask "Root partition to FORMAT for Artix (e.g. /dev/sda4)" /dev/sda4)
-	is_part "$EFI" || die "$EFI is not a partition"
-	is_part "$ROOT" || die "$ROOT is not a partition"
-	[ "$EFI" != "$ROOT" ] || die "EFI and root must be different partitions"
+	EFI_CAND=(); for p in "${PARTS[@]}"; do [ "$(lsblk -dno FSTYPE "$p")" = vfat ] && EFI_CAND+=("$p"); done
+	[ ${#EFI_CAND[@]} -gt 0 ] || EFI_CAND=("${PARTS[@]}")
+	EFI=$(pick "EFI boot partition (small, FAT32, ~1 GB):" "${EFI_CAND[@]}")
+	ROOT_CAND=(); for p in "${PARTS[@]}"; do [ "$p" != "$EFI" ] && ROOT_CAND+=("$p"); done
+	ROOT=$(pick "Partition to install the system into? ${c_r}It will be completely erased.${c_0}" "${ROOT_CAND[@]}")
+	fs=$(lsblk -dno FSTYPE "$ROOT")
+	[ -n "$fs" ] && warn "$ROOT currently holds a $fs filesystem. Every file on it will be lost."
 	FORMAT_EFI=n
-	warn "The EFI partition is kept as is (other boot entries survive)."
-	yes_no "Format the EFI partition anyway (erases other bootloaders)?" n && FORMAT_EFI=y
+	echo "The EFI partition is ${c_g}not formatted${c_0}: other bootloaders on it stay." >&2
+	yes_no "Format the EFI partition anyway? (usually not needed)" n && FORMAT_EFI=y
+
+	EXTRA_MOUNTS=()
+	echo >&2; echo "Other partitions are ${c_g}left alone${c_0}. You can mount them at boot (no formatting):" >&2
+	for p in "${PARTS[@]}"; do
+		[ "$p" = "$EFI" ] || [ "$p" = "$ROOT" ] && continue
+		[ -n "$(lsblk -dno FSTYPE "$p")" ] || continue
+		if yes_no "  Mount $(describe "$p")?" n; then
+			label=$(lsblk -dno LABEL "$p")
+			dir=$(ask "    Mount point" "/mnt/${label:-$(basename "$p")}")
+			EXTRA_MOUNTS+=("$p:$dir")
+		fi
+	done
 fi
+EXTRA_MOUNTS=("${EXTRA_MOUNTS[@]+"${EXTRA_MOUNTS[@]}"}")
 
-EXTRA_MOUNTS=()
-echo "Other partitions to mount at boot (they are NOT formatted)."
-echo "Format: /dev/sda3:/mnt/ports   (empty line to finish)"
-while :; do
-	m=$(ask "partition:mountpoint" "")
-	[ -z "$m" ] && break
-	is_part "${m%%:*}" || { warn "${m%%:*} is not a partition"; continue; }
-	[ "${m%%:*}" != "$ROOT" ] && [ "${m%%:*}" != "$EFI" ] || { warn "that is the root/EFI partition"; continue; }
-	EXTRA_MOUNTS+=("$m")
-done
+SWAP_GB=$(ask "Swap size in GB (0 = no swap; 8 is good for Minecraft)" 8)
+[[ $SWAP_GB =~ ^[0-9]+$ ]] || die "swap size must be a number"
 
-SWAP_GB=$(ask "Swap file size in GiB (0 = none)" 8)
+step "Step 2/5: user"
 HOST=$(ask "Hostname" null)
 USERNAME=$(ask "Username" "")
 [ -n "$USERNAME" ] || die "username is required"
@@ -101,9 +153,10 @@ TIMEZONE=$(ask "Timezone" Asia/Novosibirsk)
 ROOT_PASS=$(ask_pass "root password")
 USER_PASS=$(ask_pass "$USERNAME password")
 
-echo "GPU: 1) NVIDIA (proprietary)  2) AMD  3) other / VM"
+step "Step 3/5: hardware and network"
+echo "GPU: 1) NVIDIA  2) AMD  3) other / virtual machine" >&2
 GPU=$(ask "GPU" 1)
-echo "Network: 1) DHCP (dhcpcd)  2) static"
+echo "Network: 1) automatic (DHCP)  2) static IP" >&2
 NET=$(ask "Network" 1)
 if [ "$NET" = 2 ]; then
 	IFACE=$(ask "Interface" "$(ip -o link | awk -F': ' '$2!="lo"{print $2; exit}')")
@@ -111,39 +164,59 @@ if [ "$NET" = 2 ]; then
 	GW=$(ask "Gateway" 192.168.1.1)
 	DNS=$(ask "DNS" 1.1.1.1)
 fi
-echo "Desktop: 1) lilith  2) SwayFX  3) both"
+
+step "Step 4/5: desktop"
+echo "1) lilith (lightest)  2) SwayFX (blur, tiling)  3) both" >&2
 WMSEL=$(ask "Desktop" 3)
 DEFAULT_WM=lilith; [ "$WMSEL" = 2 ] && DEFAULT_WM=sway
-if [ "$WMSEL" = 3 ]; then
-	DEFAULT_WM=$(ask "Start by default after login (lilith/sway)" lilith)
-fi
+[ "$WMSEL" = 3 ] && DEFAULT_WM=$(ask "Start after login (lilith/sway)" lilith)
 
+step "Step 5/5: software"
 declare -A OPT
 for g in dev android reverse games virt printer; do OPT[$g]=n; done
-yes_no "Development tools (languages, moegram build deps, lite-xl)?" y && OPT[dev]=y
-yes_no "Android (studio, adb, scrcpy, jadx, apktool)?"            y && OPT[android]=y
-yes_no "Reverse engineering (ghidra, il2cpp-dumper)?"              y && OPT[reverse]=y
-yes_no "Games (Steam, Prism Launcher, flatpak + Sober)?"           y && OPT[games]=y
-yes_no "Virtual machines (QEMU + virt-manager)?"                   y && OPT[virt]=y
-yes_no "Printer/scanner (cups is started only on demand)?"         n && OPT[printer]=y
+yes_no "Development (languages, moegram build deps, lite-xl)?" y && OPT[dev]=y
+yes_no "Android (Studio, adb, scrcpy, jadx, apktool)?"         y && OPT[android]=y
+yes_no "Reverse engineering (ghidra, il2cpp-dumper)?"          y && OPT[reverse]=y
+yes_no "Games (Steam, Prism Launcher, Flatpak + Sober)?"       y && OPT[games]=y
+yes_no "Virtual machines (QEMU + virt-manager)?"               y && OPT[virt]=y
+yes_no "Printer/scanner (only started when needed)?"           n && OPT[printer]=y
 AMNEZIA=n; yes_no "AmneziaVPN?" y && AMNEZIA=y
 MOEGRAM=n; yes_no "moegram (installed on first login)?" y && MOEGRAM=y
 
-echo
-say "Summary"
+# ---------------------------------------------------------------- plan
+step "Plan"
+echo "${c_b}Disks:${c_0}"
+for d in $(lsblk -dpno NAME,TYPE | awk '$2=="disk"{print $1}' | grep -v -e zram -e loop); do
+	if [ "$MODE" = 1 ] && [ "$d" = "$DISK" ]; then
+		printf '  %s%-12s ERASE WHOLE DISK%s -> EFI 1 GB + system (btrfs)\n' "$c_r$c_b" "$d" "$c_0"; continue
+	fi
+	printf '  %s\n' "$(describe "$d")"
+	for p in $(lsblk -pnlo NAME,TYPE "$d" | awk '$2=="part"{print $1}'); do
+		act="${c_g}leave alone${c_0}"
+		[ "$p" = "$ROOT" ] && act="${c_r}${c_b}ERASE${c_0}${c_r} -> Artix system (btrfs)${c_0}"
+		if [ "$p" = "$EFI" ]; then
+			if [ "$FORMAT_EFI" = y ]; then act="${c_r}${c_b}ERASE${c_0}${c_r} -> new EFI${c_0}"; else act="${c_g}keep${c_0}, add Artix boot entry"; fi
+		fi
+		for m in "${EXTRA_MOUNTS[@]}"; do [ "${m%%:*}" = "$p" ] && act="${c_g}leave alone${c_0}, mount at ${m#*:}"; done
+		printf '     %-48s %s\n' "$(describe "$p")" "$act"
+	done
+done
 cat <<EOF
-  root (FORMAT, btrfs): $ROOT
-  EFI:                  $EFI  (format: $FORMAT_EFI)
-  extra mounts:         ${EXTRA_MOUNTS[*]:-none}
-  swap:                 ${SWAP_GB} GiB
-  host/user/tz:         $HOST / $USERNAME / $TIMEZONE
-  gpu/net/desktop:      $GPU / $NET / $WMSEL (default $DEFAULT_WM)
-  groups:               $(for g in "${!OPT[@]}"; do [ "${OPT[$g]}" = y ] && printf '%s ' "$g"; done)
-  amnezia/moegram:      $AMNEZIA / $MOEGRAM
+
+${c_b}System:${c_0} $HOST, user $USERNAME, timezone $TIMEZONE, swap ${SWAP_GB} GB
+${c_b}Desktop:${c_0} $(case $WMSEL in 1) echo lilith;; 2) echo SwayFX;; *) echo "lilith + SwayFX";; esac), starts: $DEFAULT_WM
+${c_b}GPU:${c_0} $(case $GPU in 1) echo NVIDIA;; 2) echo AMD;; *) echo "other/VM";; esac)   ${c_b}Network:${c_0} $([ "$NET" = 1 ] && echo DHCP || echo "static $ADDR")
+${c_b}Groups:${c_0} $(for g in dev android reverse games virt printer; do [ "${OPT[$g]}" = y ] && printf '%s ' "$g"; done)$([ "$AMNEZIA" = y ] && printf 'amnezia ')$([ "$MOEGRAM" = y ] && printf 'moegram')
 EOF
-[ "$MODE" = 1 ] && warn "ALL DATA ON $DISK WILL BE ERASED"
-warn "ALL DATA ON $ROOT WILL BE ERASED"
-[ "$(ask "Type 'yes' to continue" no)" = yes ] || die "aborted"
+
+[ "$DRY_RUN" = y ] && { say "Dry run: nothing was changed."; exit 0; }
+
+TARGET=$([ "$MODE" = 1 ] && basename "$DISK" || basename "$ROOT")
+echo
+echo "${c_r}${c_b}To confirm, type the name of what will be erased: $TARGET${c_0}"
+echo "(anything else cancels, nothing will be changed)"
+[ "$(ask "Erase" "")" = "$TARGET" ] || die "cancelled, nothing was changed"
+for i in 5 4 3 2 1; do printf '\rStarting in %s... (Ctrl+C to cancel) ' "$i"; sleep 1; done; echo
 
 # ---------------------------------------------------------------- disks
 say "Partitioning and formatting"

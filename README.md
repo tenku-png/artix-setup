@@ -14,6 +14,15 @@ bash install.sh
 
 Do not pipe it into `bash` (`curl | bash`): the script asks questions.
 
+Nothing is changed until the end: disks and partitions are picked from a
+numbered list, then a plan shows every partition as ERASE / keep / mount,
+and you must type the name of what gets erased (e.g. `sda4`) to start.
+Try it safely first:
+
+```sh
+bash install.sh --dry-run     # asks everything, prints the plan, changes nothing
+```
+
 The installer asks for:
 - **mode**: wipe a whole disk (clean VM) or use existing partitions. In
   partition mode only the chosen root partition is formatted; the EFI
