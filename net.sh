@@ -4,6 +4,16 @@ set -u
 b=$'\e[1m'; z=$'\e[0m'
 speed() { curl -s -o /dev/null --max-time 15 -w '%{speed_download}' "$@" | awk '{printf "%.1f MB/s", $1/1048576}'; }
 
+echo "${b}== network cards (driver, MTU, speed):${z}"
+for i in /sys/class/net/*; do
+	n=$(basename "$i"); [ "$n" = lo ] && continue
+	drv=$(basename "$(readlink "$i/device/driver" 2>/dev/null)" 2>/dev/null)
+	printf '  %-10s driver=%-8s mtu=%-5s speed=%sMb/s state=%s\n' "$n" "${drv:--}" "$(cat "$i/mtu")" \
+		"$(cat "$i/speed" 2>/dev/null || echo ?)" "$(cat "$i/operstate")"
+done
+echo "${b}== recent NIC errors in the kernel log:${z}"
+dmesg 2>/dev/null | grep -iE 'r8169|r8168|link (up|down)|tx timeout|eth[0-9]|enp' | tail -5 | sed 's/^/  /' ||
+	doas dmesg | grep -iE 'r8169|r8168|link (up|down)|tx timeout' | tail -5 | sed 's/^/  /'
 echo "${b}== VPN interfaces:${z}"
 ip -br link | grep -Ei 'amn|wg|tun|awg' || echo "  none found (is the VPN connected?)"
 echo "${b}== IPv6:${z}"
