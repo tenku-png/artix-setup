@@ -260,6 +260,14 @@ mount --mkdir -o "subvol=@home,$O" "$ROOT" "$MNT/home"
 mount --mkdir -o "subvol=@snapshots,$O" "$ROOT" "$MNT/.snapshots"
 mount --mkdir -o "subvol=@swap,noatime" "$ROOT" "$MNT/swap"
 mount --mkdir "$EFI" "$MNT/boot"
+# Kernels/microcode left by a previous Linux on a reused EFI partition
+# clash with the new packages: move them aside (not deleted)
+old=$(cd "$MNT/boot" && ls -d vmlinuz-* initramfs-* amd-ucode.img intel-ucode.img 2>/dev/null || true)
+if [ -n "$old" ]; then
+	mkdir -p "$MNT/boot/old-linux"
+	for f in $old; do mv "$MNT/boot/$f" "$MNT/boot/old-linux/"; done
+	warn "moved old kernel files on the EFI partition to /boot/old-linux: $(echo $old)"
+fi
 if [ "$SWAP_GB" -gt 0 ]; then
 	btrfs filesystem mkswapfile --size "${SWAP_GB}g" "$MNT/swap/swapfile"
 	swapon "$MNT/swap/swapfile"
