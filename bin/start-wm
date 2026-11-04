@@ -15,6 +15,8 @@ export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp/runtime-$(id -u)}"
 mkdir -p -m 700 "$XDG_RUNTIME_DIR"
 export XDG_SESSION_TYPE=wayland MOZ_ENABLE_WAYLAND=1 QT_QPA_PLATFORM="wayland;xcb"
 export ELECTRON_OZONE_PLATFORM_HINT=auto
+# No accessibility bus (at-spi + its own dbus-daemon, ~20 MiB)
+export NO_AT_BRIDGE=1 GTK_A11Y=none
 # bemenu styled like the bar: one line on top, same font and colors
 export BEMENU_OPTS="--fn 'JetBrainsMono Nerd Font 10' -H 24 -p '' --ignorecase \
  --tb '#222222' --tf '#eeeeee' --fb '#222222' --ff '#eeeeee' \
