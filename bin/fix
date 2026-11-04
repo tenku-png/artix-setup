@@ -7,7 +7,7 @@ case $name in
 	gpu) name=gpu-check ;;
 	update) name=fix ;;
 	lilith-new) export LIWM_BRANCH=hyprland-config; name=lilith ;;
-	""|-h|--help) echo "usage: fix trim | gpu | net | awg FILE | awgwatch | ramtop | slim | kmem | boot | kernel | update | lilith | lilith-new"; exit 0 ;;
+	""|-h|--help) echo "usage: fix trim | gpu | net | awg FILE | awgwatch | ramtop | slim | kmem | boot | nvcost | kernel | update | lilith | lilith-new"; exit 0 ;;
 esac
 # newest commit (avoids the 5 min cache of the main branch)
 sha=$(curl -fsSL "https://api.github.com/repos/$R/commits/main" 2>/dev/null | grep -m1 '"sha"' | cut -d'"' -f4)
