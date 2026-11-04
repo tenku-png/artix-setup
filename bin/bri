@@ -1,0 +1,24 @@
+#!/bin/sh
+# bri +5 | bri -5: change screen brightness.
+# Laptop backlight: brightnessctl. Desktop monitors: DDC/CI via ddcutil on
+# every display (slow, so fast scroll steps are summed and sent together).
+d=${1:?usage: bri +N or bri -N}
+if ls /sys/class/backlight/* >/dev/null 2>&1; then
+	case $d in -*) exec brightnessctl -q set "${d#-}%-" ;; *) exec brightnessctl -q set "${d#+}%+" ;; esac
+fi
+R=${XDG_RUNTIME_DIR:-/tmp}; P=$R/bri.pending
+(flock 8; echo $(( $(cat "$P" 2>/dev/null || echo 0) + d )) > "$P") 8>"$P.lock"
+# one worker sends the sum, other calls only leave their step behind
+exec 9>"$R/bri.run"; flock -n 9 || exit 0
+[ -s "$R/bri.displays" ] || ddcutil detect --brief 2>/dev/null | awk '/^Display/{print $2}' > "$R/bri.displays"
+while :; do
+	s=$( (flock 8; cat "$P" 2>/dev/null; echo 0 > "$P") 8>"$P.lock")
+	[ "${s:-0}" -eq 0 ] && break
+	op=+; [ "$s" -lt 0 ] && { op=-; s=${s#-}; }
+	for n in $(cat "$R/bri.displays"); do ddcutil --noverify -d "$n" setvcp 10 $op "$s" >/dev/null 2>&1 & done
+	wait
+done
+exec 9>&-
+# a step that arrived while finishing: run again
+[ "$(cat "$P" 2>/dev/null || echo 0)" -ne 0 ] && exec "$0" +0
+exit 0
