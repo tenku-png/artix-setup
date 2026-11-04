@@ -9,7 +9,7 @@ doas udevadm control --reload; doas udevadm trigger --subsystem-match=i2c-dev
 doas usermod -aG i2c "$USER"
 curl -fsSL --retry 3 "https://raw.githubusercontent.com/tenku-png/artix-setup/${REF:-main}/bin/bri" -o /tmp/bri &&
 	doas install -m755 /tmp/bri /usr/local/bin/bri
-rm -f "${XDG_RUNTIME_DIR:-/tmp}/bri.displays"
+rm -f "${XDG_RUNTIME_DIR:-/tmp}/bri.displays" "${XDG_RUNTIME_DIR:-/tmp}/bri.buses"
 echo "== monitors with DDC/CI:"
 if doas ddcutil detect --brief 2>&1 | grep -E '^Display|connector'; then
 	echo "==> ok. Reboot (new group), then scroll on the bar brightness."

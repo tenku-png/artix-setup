@@ -1,21 +1,35 @@
 #!/bin/sh
-# bri +5 | bri -5: change screen brightness.
+# bri +5 | bri -5 | bri get: screen brightness.
 # Laptop backlight: brightnessctl. Desktop monitors: DDC/CI via ddcutil on
-# every display (slow, so fast scroll steps are summed and sent together).
-d=${1:?usage: bri +N or bri -N}
+# every display. DDC/CI is slow, so fast scroll steps are summed and sent
+# together, and the i2c buses are cached (no slow detection per call).
+d=${1:?usage: bri +N, bri -N or bri get}
 if ls /sys/class/backlight/* >/dev/null 2>&1; then
-	case $d in -*) exec brightnessctl -q set "${d#-}%-" ;; *) exec brightnessctl -q set "${d#+}%+" ;; esac
+	case $d in
+	get) exec brightnessctl -m | awk -F, '{print "VCP 10 C", $3, $5}' ;;
+	-*) exec brightnessctl -q set "${d#-}%-" ;;
+	*) exec brightnessctl -q set "${d#+}%+" ;;
+	esac
 fi
-R=${XDG_RUNTIME_DIR:-/tmp}; P=$R/bri.pending
+R=${XDG_RUNTIME_DIR:-/tmp}; P=$R/bri.pending; B=$R/bri.buses
+DDC="ddcutil --noverify --sleep-multiplier .3"
+buses() {
+	[ -s "$B" ] || ddcutil detect --brief 2>/dev/null | awk '/I2C bus/{sub(/.*i2c-/,""); print}' > "$B"
+	cat "$B"
+}
+if [ "$d" = get ]; then
+	# wait for a running change, then read the first monitor
+	exec 9>"$R/bri.run"; flock -w 5 9
+	exec $DDC --bus "$(buses | head -1)" getvcp 10 --brief
+fi
 (flock 8; echo $(( $(cat "$P" 2>/dev/null || echo 0) + d )) > "$P") 8>"$P.lock"
 # one worker sends the sum, other calls only leave their step behind
 exec 9>"$R/bri.run"; flock -n 9 || exit 0
-[ -s "$R/bri.displays" ] || ddcutil detect --brief 2>/dev/null | awk '/^Display/{print $2}' > "$R/bri.displays"
 while :; do
 	s=$( (flock 8; cat "$P" 2>/dev/null; echo 0 > "$P") 8>"$P.lock")
 	[ "${s:-0}" -eq 0 ] && break
 	op=+; [ "$s" -lt 0 ] && { op=-; s=${s#-}; }
-	for n in $(cat "$R/bri.displays"); do ddcutil --noverify -d "$n" setvcp 10 $op "$s" >/dev/null 2>&1 & done
+	for n in $(buses); do $DDC --bus "$n" setvcp 10 $op "$s" >/dev/null 2>&1 & done
 	wait
 done
 exec 9>&-
