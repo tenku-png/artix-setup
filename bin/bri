@@ -1,36 +1,62 @@
 #!/bin/sh
 # bri +5 | bri -5 | bri get: screen brightness.
 # Laptop backlight: brightnessctl. Desktop monitors: DDC/CI via ddcutil.
-# DDC/CI is only touched when you change the brightness: talking to the
-# NVIDIA i2c buses while lilith starts froze the screen. i2c-dev is loaded
-# on first use (doas rule from fix ddc). Fast scroll steps are summed.
+# Monitor: $LILITH_OUTPUT (set by the lilith bar: the bar you scrolled) or
+# all monitors. DDC/CI is only touched when you change the brightness
+# (talking to the NVIDIA i2c buses while lilith starts froze the screen);
+# i2c-dev is loaded on first use (doas rule from fix ddc). Fast scroll steps
+# are summed.
 d=${1:?usage: bri +N, bri -N or bri get}
 if ls /sys/class/backlight/* >/dev/null 2>&1; then
 	case $d in
-	get) exec brightnessctl -m | awk -F, '{print "VCP 10 C", $3, $5}' ;;
+	get) exit 0 ;;
 	-*) exec brightnessctl -q set "${d#-}%-" ;;
 	*) exec brightnessctl -q set "${d#+}%+" ;;
 	esac
 fi
-R=${XDG_RUNTIME_DIR:-/tmp}; P=$R/bri.pending; B=$R/bri.buses; V=$R/bri.value
-# for the bar: last value seen, never asks the monitor
-[ "$d" = get ] && { [ -s "$V" ] && echo "VCP 10 C $(cat "$V")"; exit 0; }
+R=${XDG_RUNTIME_DIR:-/tmp}; M=$R/bri.map
+# for the bar: "OUTPUT current max" per monitor, never asks the monitors
+if [ "$d" = get ]; then
+	for v in "$R"/bri.value.*; do [ -s "$v" ] && echo "${v##*/bri.value.} $(cat "$v")"; done
+	exit 0
+fi
+out=${LILITH_OUTPUT:-all}
+P=$R/bri.pending.$out
 DDC="ddcutil --noverify --sleep-multiplier .3"
 (flock 8; echo $(( $(cat "$P" 2>/dev/null || echo 0) + d )) > "$P") 8>"$P.lock"
-# one worker sends the sum, other calls only leave their step behind
-exec 9>"$R/bri.run"; flock -n 9 || exit 0
+# one worker per monitor sends the sum, other calls only leave their step
+exec 9>"$R/bri.run.$out"; flock -n 9 || exit 0
 ls /dev/i2c-* >/dev/null 2>&1 || doas -n modprobe i2c-dev 2>/dev/null
-[ -s "$B" ] || ddcutil detect --brief 2>/dev/null | awk '/I2C bus/{sub(/.*i2c-/,""); print}' > "$B"
+# "OUTPUT bus" lines, e.g. "DP-2 4"
+if [ ! -s "$M" ]; then
+	(flock 7; [ -s "$M" ] || ddcutil detect --brief 2>/dev/null | awk '
+		/I2C bus/ { sub(/.*i2c-/, ""); bus = $0 }
+		/DRM connector/ { sub(/.*card[0-9]+-/, ""); print $0, bus; bus = "" }
+		/^$/ { if (bus != "") print "?", bus; bus = "" }
+		END { if (bus != "") print "?", bus }' > "$M") 7>"$M.lock"
+fi
+buses=$(awk -v o="$out" 'o == "all" || $1 == o { print $1 ":" $2 }' "$M")
+[ -n "$buses" ] || buses=$(awk '{ print $1 ":" $2 }' "$M")  # unknown monitor: all
 while :; do
 	s=$( (flock 8; cat "$P" 2>/dev/null; echo 0 > "$P") 8>"$P.lock")
 	[ "${s:-0}" -eq 0 ] && break
 	op=+; [ "$s" -lt 0 ] && { op=-; s=${s#-}; }
-	for n in $(cat "$B"); do $DDC --bus "$n" setvcp 10 $op "$s" >/dev/null 2>&1 & done
+	for ob in $buses; do
+		o=${ob%%:*}; b=${ob##*:}; V=$R/bri.value.$o
+		# show the new value at once, the real one follows below
+		[ -s "$V" ] && awk -v s="$s" -v op="$op" '{ c = op == "+" ? $1 + s : $1 - s;
+			if (c < 0) c = 0; if (c > $2) c = $2; print c, $2 }' "$V" > "$V.tmp" && mv "$V.tmp" "$V"
+		$DDC --bus "$b" setvcp 10 $op "$s" >/dev/null 2>&1 &
+	done
 	wait
 done
-# remember the real value for the bar ("current max")
-$DDC --bus "$(head -1 "$B")" getvcp 10 --brief 2>/dev/null | awk '/^VCP/{print $4, $5}' > "$V.tmp" &&
+# remember the real values for the bar ("current max")
+for ob in $buses; do
+	o=${ob%%:*}; b=${ob##*:}; V=$R/bri.value.$o
+	[ "$o" = "?" ] && continue
+	$DDC --bus "$b" getvcp 10 --brief 2>/dev/null | awk '/^VCP/ { print $4, $5 }' > "$V.tmp"
 	[ -s "$V.tmp" ] && mv "$V.tmp" "$V"
+done
 exec 9>&-
 # a step that arrived while finishing: run again
 [ "$(cat "$P" 2>/dev/null || echo 0)" -ne 0 ] && exec "$0" +0
