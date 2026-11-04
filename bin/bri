@@ -1,8 +1,9 @@
 #!/bin/sh
 # bri +5 | bri -5 | bri get: screen brightness.
-# Laptop backlight: brightnessctl. Desktop monitors: DDC/CI via ddcutil on
-# every display. DDC/CI is slow, so fast scroll steps are summed and sent
-# together, and the i2c buses are cached (no slow detection per call).
+# Laptop backlight: brightnessctl. Desktop monitors: DDC/CI via ddcutil.
+# DDC/CI is only touched when you change the brightness: talking to the
+# NVIDIA i2c buses while lilith starts froze the screen. i2c-dev is loaded
+# on first use (doas rule from fix ddc). Fast scroll steps are summed.
 d=${1:?usage: bri +N, bri -N or bri get}
 if ls /sys/class/backlight/* >/dev/null 2>&1; then
 	case $d in
@@ -11,27 +12,25 @@ if ls /sys/class/backlight/* >/dev/null 2>&1; then
 	*) exec brightnessctl -q set "${d#+}%+" ;;
 	esac
 fi
-R=${XDG_RUNTIME_DIR:-/tmp}; P=$R/bri.pending; B=$R/bri.buses
+R=${XDG_RUNTIME_DIR:-/tmp}; P=$R/bri.pending; B=$R/bri.buses; V=$R/bri.value
+# for the bar: last value seen, never asks the monitor
+[ "$d" = get ] && { [ -s "$V" ] && echo "VCP 10 C $(cat "$V")"; exit 0; }
 DDC="ddcutil --noverify --sleep-multiplier .3"
-buses() {
-	[ -s "$B" ] || ddcutil detect --brief 2>/dev/null | awk '/I2C bus/{sub(/.*i2c-/,""); print}' > "$B"
-	cat "$B"
-}
-if [ "$d" = get ]; then
-	# wait for a running change, then read the first monitor
-	exec 9>"$R/bri.run"; flock -w 5 9
-	exec $DDC --bus "$(buses | head -1)" getvcp 10 --brief
-fi
 (flock 8; echo $(( $(cat "$P" 2>/dev/null || echo 0) + d )) > "$P") 8>"$P.lock"
 # one worker sends the sum, other calls only leave their step behind
 exec 9>"$R/bri.run"; flock -n 9 || exit 0
+ls /dev/i2c-* >/dev/null 2>&1 || doas -n modprobe i2c-dev 2>/dev/null
+[ -s "$B" ] || ddcutil detect --brief 2>/dev/null | awk '/I2C bus/{sub(/.*i2c-/,""); print}' > "$B"
 while :; do
 	s=$( (flock 8; cat "$P" 2>/dev/null; echo 0 > "$P") 8>"$P.lock")
 	[ "${s:-0}" -eq 0 ] && break
 	op=+; [ "$s" -lt 0 ] && { op=-; s=${s#-}; }
-	for n in $(buses); do $DDC --bus "$n" setvcp 10 $op "$s" >/dev/null 2>&1 & done
+	for n in $(cat "$B"); do $DDC --bus "$n" setvcp 10 $op "$s" >/dev/null 2>&1 & done
 	wait
 done
+# remember the real value for the bar ("current max")
+$DDC --bus "$(head -1 "$B")" getvcp 10 --brief 2>/dev/null | awk '/^VCP/{print $4, $5}' > "$V.tmp" &&
+	[ -s "$V.tmp" ] && mv "$V.tmp" "$V"
 exec 9>&-
 # a step that arrived while finishing: run again
 [ "$(cat "$P" 2>/dev/null || echo 0)" -ne 0 ] && exec "$0" +0
