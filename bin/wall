@@ -1,0 +1,21 @@
+#!/bin/sh
+# wall [FILE]: pick a wallpaper from ~/Pictures/wallpapers with bemenu (or
+# set FILE), make matugen colors from it and tell lilith to reload both.
+D=${WALL_DIR:-$HOME/Pictures/wallpapers}
+f=${1:-}
+if [ -z "$f" ]; then
+	mkdir -p "$D"
+	n=$(cd "$D" && find . -maxdepth 2 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) |
+		sed 's|^\./||' | sort | bemenu -p wallpaper) || exit 0
+	[ -n "$n" ] || exit 0
+	f=$D/$n
+fi
+f=$(realpath "$f") || exit 1
+mkdir -p ~/.config/lilith
+ln -sfn "$f" ~/.config/lilith/wallpaper
+if command -v matugen >/dev/null; then
+	matugen image "$f" --source-color-index 0 </dev/null >/dev/null 2>&1 ||
+		matugen image "$f" </dev/null >/dev/null 2>&1
+fi
+pkill -USR1 -x lilith
+exit 0

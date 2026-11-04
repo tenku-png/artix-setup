@@ -1,0 +1,15 @@
+# matugen: colors from the wallpaper (run by `wall`). Edit the templates in
+# ~/.config/matugen/templates; fix theme does not overwrite them.
+[config]
+
+[templates.lilith]
+input_path = '~/.config/matugen/templates/lilith-colors'
+output_path = '~/.config/lilith/colors'
+
+[templates.foot]
+input_path = '~/.config/matugen/templates/foot.ini'
+output_path = '~/.config/foot/colors.ini'
+
+[templates.fastfetch]
+input_path = '~/.config/matugen/templates/fastfetch.fish'
+output_path = '~/.config/fish/conf.d/90-matugen-fastfetch.fish'

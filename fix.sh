@@ -5,7 +5,7 @@ set -u
 REPO=https://raw.githubusercontent.com/tenku-png/artix-setup/${REF:-main}
 tmp=$(mktemp -d)
 echo "==> updating start-wm, session-apps, clip-pick, mic-monitor, mem, bri"
-for f in start-wm session-apps clip-pick mic-monitor mem bri fix; do
+for f in start-wm session-apps clip-pick mic-monitor mem bri wall fix; do
 	curl -fsSL --retry 3 "$REPO/bin/$f" -o "$tmp/$f" || { echo "download of $f failed"; exit 1; }
 done
 doas install -m755 "$tmp"/* /usr/local/bin/ && echo "==> installed to /usr/local/bin"
