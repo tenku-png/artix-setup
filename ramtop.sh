@@ -12,4 +12,4 @@ END{for(p in n)printf "%6.1f %s%s\n",n[p]/1024,p,(c[p]>1?" x"c[p]:"")}' |
 echo "== sum of all RSS: $(ps -eo rss= | awk '{s+=$1}END{print int(s/1024)}')M"
 lsmod | awk 'NR>1{s+=$2}END{printf "modules: %d, %d MiB code\n",NR-1,s/1048576}'
 [ -r /proc/driver/nvidia/version ] && echo "nvidia: loaded"
-dinitctl list 2>/dev/null | grep -c '\[{+}' | sed 's/^/dinit services up: /'
+dinitctl list 2>/dev/null | grep -cE '^\[.\+' | sed 's/^/dinit services up: /'
