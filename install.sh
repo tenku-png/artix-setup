@@ -461,11 +461,25 @@ say "Boot entry (EFISTUB, no GRUB)"
 ROOT_UUID=$(blkid -s UUID -o value "$ROOT")
 EFI_DISK=/dev/$(lsblk -no PKNAME "$EFI" | head -1)
 EFI_NUM=$(cat "/sys/class/block/$(basename "$EFI")/partition")
-CMDLINE="root=UUID=$ROOT_UUID rootflags=subvol=@ rw quiet loglevel=3"
+# "ro": dinit-rc's root-ro service remounts / read-only early in boot; on a
+# root already mounted rw (Btrfs) that fails with EBUSY (mount exit 32) and
+# takes down early-root-rw.target and the whole boot. root-rw remounts rw later.
+CMDLINE="root=UUID=$ROOT_UUID rootflags=subvol=@ ro quiet loglevel=3"
 [ "$GPU" = 1 ] && CMDLINE+=" nvidia_drm.modeset=1 nvidia_drm.fbdev=1"
 in_chroot "efibootmgr --create --disk $EFI_DISK --part $EFI_NUM --label 'Artix' \
 	--loader /vmlinuz-linux-zen \
 	--unicode '$CMDLINE initrd=\\$UCODE.img initrd=\\initramfs-linux-zen.img'"
+
+# Preflight: verify the boot configuration before the user reboots
+say "Checking boot configuration"
+grep -qw ro <<<"$CMDLINE" && ! grep -qw rw <<<"$CMDLINE" || die "kernel cmdline must use 'ro' (dinit root-ro/root-rw), got: $CMDLINE"
+[ "$(awk '$1!~/^#/ && $2=="/"' "$MNT/etc/fstab" | wc -l)" = 1 ] || die "/etc/fstab must contain exactly one entry for /"
+grep -q "^UUID=$ROOT_UUID[[:space:]]\+/[[:space:]]" "$MNT/etc/fstab" || die "/etc/fstab root UUID does not match $ROOT_UUID"
+for f in vmlinuz-linux-zen initramfs-linux-zen.img "$UCODE.img"; do
+	[ -s "$MNT/boot/$f" ] || die "missing /boot/$f on the EFI partition"
+done
+efibootmgr -v | grep -F "$ROOT_UUID" | grep -qw ro || die "EFI boot entry with root=UUID=$ROOT_UUID and 'ro' not found"
+in_chroot "dinit-check boot" || die "dinit-check boot reported problems"
 
 # ---------------------------------------------------------------- services
 say "Services"
