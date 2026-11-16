@@ -69,6 +69,9 @@ grep -E '^CONFIG_(DRM|FB|FRAMEBUFFER|FONT|VT|DUMMY_CONSOLE|DMA_SHARED|DMABUF|SYN
 # Netfilter as in zen: localmodconfig keeps only loaded nft modules, so
 # awg-quick's rules (table ip ..., ct mark, fib) failed with "No such file"
 grep -E '^CONFIG_(NETFILTER|NF_|NFT_|IP_NF|IP6_NF|NF_TABLES|IP_ADVANCED_ROUTER|IP_MULTIPLE_TABLES|IPV6_MULTIPLE_TABLES|FIB_RULES)[A-Z0-9_]*=[ym]' zen.config >> .config
+# awg-quick nft rules need these explicitly (fib, ct mark, inet)
+$S -e NF_TABLES_IPV4 -e NF_TABLES_IPV6 -e NF_TABLES_INET -m NFT_CT -m NFT_FIB -m NFT_FIB_IPV4 \
+	-m NFT_FIB_IPV6 -m NFT_FIB_INET -e IP_MULTIPLE_TABLES -e IPV6_MULTIPLE_TABLES
 make olddefconfig >/dev/null
 echo "==> config: $(grep -c '=y' .config) built-in, $(grep -c '=m' .config) modules"
 
