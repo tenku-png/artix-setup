@@ -13,6 +13,7 @@ MNT=/mnt
 
 # ---------------------------------------------------------------- helpers
 DRY_RUN=n; [ "${1:-}" = "--dry-run" ] && DRY_RUN=y
+RESUME=n; [ "${1:-}" = "--resume-swayfx" ] && RESUME=y
 c_b=$'\e[1m'; c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 say()  { printf '%s==>%s %s\n' "$c_g$c_b" "$c_0" "$*"; }
 warn() { printf '%s==> %s%s\n' "$c_y" "$*" "$c_0" >&2; }
@@ -59,9 +60,9 @@ describe() {
 	fi
 }
 part_dev() { case $1 in *nvme*|*mmcblk*|*loop*) echo "${1}p$2" ;; *) echo "${1}$2" ;; esac; }
-in_chroot() { artix-chroot "$MNT" /bin/bash -c "$1"; }
+in_chroot() { artix-chroot "$MNT" /bin/bash -euo pipefail -c "$1"; }
 retry() { local i; for i in 1 2 3; do "$@" && return 0; warn "failed (try $i/3), retrying..."; sleep 3; done; return 1; }
-as_user()   { artix-chroot "$MNT" /bin/su - "$USERNAME" -c "$1"; }
+as_user()   { artix-chroot "$MNT" /bin/su - "$USERNAME" -c "set -e; $1"; }
 # Read a package group file: prints "repo" or "aur" packages
 pkgs() { # pkgs file repo|aur
 	sed 's/#.*//' "$REPO/packages/$1" | tr -s ' \t' '\n' | sed '/^$/d' |
@@ -91,6 +92,28 @@ else
 	REPO=/tmp/artix-setup
 	rm -rf "$REPO"
 	retry git clone --depth 1 "$REPO_URL" "$REPO"
+fi
+
+# Safe recovery for an interrupted SwayFX install. Mount the existing root at
+# /mnt yourself first. This mode contains no partitioning or formatting calls.
+if [ "$RESUME" = y ]; then
+	[ -f "$MNT/etc/pacman.conf" ] || die "no installed system at $MNT; mount its existing root partition there first"
+	[ -x "$MNT/usr/bin/pacman" ] || die "base system is incomplete; finish basestrap before resuming packages"
+	[ -x "$MNT/usr/bin/paru" ] || die "paru is missing; complete AUR-helper setup before resuming"
+	USERNAME=$(ask "Installed username" "")
+	[ -d "$MNT/home/$USERNAME" ] || die "user home not found: $MNT/home/$USERNAME"
+	step "Repairing pinned SwayFX dependencies and build"
+	in_chroot "pacman -Syu --needed --noconfirm git base-devel meson ninja"
+	cp "$REPO/configs/swayfx/middle-drag.patch" "$MNT/tmp/"
+	as_user "paru -S --needed --noconfirm --skipreview wlroots0.19 scenefx0.4 &&
+		cd /tmp && rm -rf swayfx && git clone https://aur.archlinux.org/swayfx.git && cd swayfx &&
+		git checkout -f $SWAYFX_AUR_COMMIT &&
+		sed -i \"s/'scenefx[^']*'/'scenefx0.4'/; s/-Dsd-bus-provider=libsystemd/-Dtray=disabled/\" PKGBUILD &&
+		makepkg -o --noconfirm &&
+		patch -d src/swayfx-0.5.3 -p1 < /tmp/middle-drag.patch &&
+		makepkg -efi --noconfirm"
+	say "SwayFX recovery completed successfully."
+	exit 0
 fi
 
 # Disk the ISO was booted from: never offered for wiping
@@ -427,19 +450,19 @@ fi
 if [ "$WMSEL" != 1 ]; then
 	say "SwayFX $SWAYFX_AUR_COMMIT with the middle-drag patch"
 	cp "$REPO/configs/swayfx/middle-drag.patch" "$MNT/tmp/"
-	as_user "paru -S --needed --noconfirm --skipreview scenefx0.4 &&
+	as_user "paru -S --needed --noconfirm --skipreview wlroots0.19 scenefx0.4 &&
 		cd /tmp && rm -rf swayfx && git clone https://aur.archlinux.org/swayfx.git && cd swayfx &&
 		git checkout -f $SWAYFX_AUR_COMMIT &&
 		sed -i \"s/'scenefx[^']*'/'scenefx0.4'/; s/-Dsd-bus-provider=libsystemd/-Dtray=disabled/\" PKGBUILD &&
 		makepkg -o --noconfirm &&
 		patch -d src/swayfx-0.5.3 -p1 < /tmp/middle-drag.patch &&
-		makepkg -efi --noconfirm" || warn "SwayFX build failed (see configs/swayfx/README.md)"
+		makepkg -efi --noconfirm" || die "SwayFX installation failed; the install is incomplete. After mounting the existing root at /mnt, run install.sh --resume-swayfx."
 fi
 
 if [ "$WMSEL" != 2 ]; then
 	say "lilith (liwm, branch $LIWM_BRANCH)"
 	retry as_user "rm -rf ~/liwm && git clone -b $LIWM_BRANCH $LIWM_URL ~/liwm && cd ~/liwm && make && doas make install" ||
-		warn "lilith build failed; retry in ~/liwm with: make && doas make install"
+		die "lilith installation failed; the install is incomplete. After mounting the existing root at /mnt, repair its dependencies and retry the build in ~/liwm."
 fi
 
 # ---------------------------------------------------------------- configs

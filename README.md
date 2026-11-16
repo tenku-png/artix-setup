@@ -44,6 +44,31 @@ libvirt over its socket, AmneziaVPN as a dinit service.
 After the first boot: log in on tty1 (the default compositor starts),
 then run `~/first-login.sh` once (Sober).
 
+### Recover an interrupted SwayFX install
+
+From the Artix Live ISO, mount the existing Linux Btrfs root at `/mnt` using
+its existing `@` subvolume, then mount the existing EFI partition at `/mnt/boot`.
+Do not run the normal installer again. Clone this repository and run:
+
+```sh
+bash install.sh --resume-swayfx
+```
+
+This recovery mode checks for the installed system and `paru`, updates packages,
+installs the pinned AUR dependencies, and rebuilds SwayFX. It does not partition,
+format, swap off, or unmount any device. It cannot recover if the base system or
+AUR helper was never installed; the error identifies the missing prerequisite.
+
+For `target not found: wlroots0.19`: `wlroots0.19` is an AUR package, not an
+Artix repository package. It was incorrectly listed as a repository dependency
+and sent to `pacman`. Pinned SwayFX 0.5.3 uses `wlroots0.19` and `scenefx0.4`;
+current upstream AUR SwayFX 0.6.1 instead targets `wlroots0.20` and `scenefx0.5`.
+These versions must not be mixed.
+
+This repository currently targets **dinit**, including service definitions and
+package names. It is not a runit installer. The dependency fix and recovery mode
+do not convert the system to runit; use a dinit Artix ISO for this repository.
+
 ## Layout
 
 | Path | |

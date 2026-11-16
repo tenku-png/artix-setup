@@ -8,6 +8,7 @@ scenefx 0.5, which is not packaged yet):
 ```sh
 doas pacman -S --needed swaybg foot grim slurp wl-clipboard bemenu-wayland
 paru -S scenefx0.4
+paru -S wlroots0.19
 git clone https://aur.archlinux.org/swayfx.git /tmp/swayfx && cd /tmp/swayfx
 git checkout -f 9add1cd          # swayfx 0.5.3, wlroots0.19
 sed -i "s/'scenefx[^']*'/'scenefx0.4'/" PKGBUILD

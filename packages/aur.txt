@@ -1,3 +1,4 @@
 # AUR packages live in each group file with an "aur:" prefix.
-# paru-bin is bootstrapped by install.sh; swayfx/scenefx0.4 are built by
+# paru-bin is bootstrapped by install.sh; wlroots0.19/scenefx0.4 are AUR packages;
+# swayfx is built by
 # install.sh (see configs/swayfx/README.md); amneziavpn-bin is its own option.
