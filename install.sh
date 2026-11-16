@@ -77,20 +77,24 @@ prepare_artix_mirrors() { # pacman root (/, or /mnt)
 	[ -f "$list" ] || die "Artix mirror list not found: $list"
 	tmp=$(mktemp)
 	{
-		awk '$1 == "Server" {print $3}' "$list"
+		awk '$1 == "Server" {print $3; n++; if (n == 5) exit}' "$list"
 		printf '%s\n' \
 			'https://mirror1.artixlinux.org/repos/$repo/os/$arch' \
 			'https://mirror2.artixlinux.org/repos/$repo/os/$arch' \
 			'https://mirror3.artixlinux.org/repos/$repo/os/$arch'
 	} | sed 's/#.*//' | sed '/^[[:space:]]*$/d' | sort -u > "$tmp.input"
+	say "Checking Artix mirrors in parallel (up to 6 seconds)..."
 	while IFS= read -r raw; do
 		server=${raw//\$repo/system}; server=${server//\$arch/x86_64}
 		probe=${server%/}/system.db
-		if elapsed=$(curl -fsSL --connect-timeout 5 --max-time 12 -o /dev/null \
-			-w '%{time_total}' "$probe" 2>/dev/null); then
-			printf '%s\t%s\n' "$elapsed" "$raw" >> "$tmp"
-		fi
+		(
+			if elapsed=$(curl -fsSL --connect-timeout 3 --max-time 6 -o /dev/null \
+				-w '%{time_total}' "$probe" 2>/dev/null); then
+				printf '%s\t%s\n' "$elapsed" "$raw" >> "$tmp"
+			fi
+		) &
 	done < "$tmp.input"
+	wait
 	rm -f "$tmp.input"
 	[ -s "$tmp" ] || { rm -f "$tmp"; die "No Artix mirrors passed the system.db check. Check network/DNS; no mass package install was started."; }
 	{
@@ -104,7 +108,7 @@ prepare_artix_mirrors() { # pacman root (/, or /mnt)
 	# every downloaded package against its signed repository metadata.
 	if [ -f "$root/etc/pacman.conf" ]; then
 		if grep -q '^\[options\]' "$root/etc/pacman.conf"; then
-			sed -i '/^XferCommand[[:space:]]*=/d; /^\[options\]/a XferCommand = /usr/bin/curl --fail --location --retry 3 --retry-all-errors --connect-timeout 10 --max-time 300 --output %o %u' "$root/etc/pacman.conf"
+			sed -i '/^XferCommand[[:space:]]*=/d; /^\[options\]/a XferCommand = /usr/bin/curl --fail --location --retry 2 --retry-all-errors --retry-max-time 90 --connect-timeout 8 --max-time 120 --output %o %u' "$root/etc/pacman.conf"
 		fi
 	fi
 	say "Artix mirrors ready (fastest reachable mirrors first): $(sed -n 's/^Server = //p' "$list" | paste -sd ' ' -)"
@@ -120,7 +124,7 @@ curl -fsS --max-time 15 -o /dev/null https://github.com 2>/dev/null ||
 	die "no network (try: dinitctl start dhcpcd)"
 
 prepare_artix_mirrors /
-retry pacman -Syy --needed --noconfirm git >/dev/null || die "Live ISO package sync failed after mirror retries; see pacman output above."
+retry pacman -Syy --needed --noconfirm git || die "Live ISO package sync failed after mirror retries; see pacman output above."
 # A stalled connection makes git hang forever; abort slow transfers after
 # 20 s so retry() can try again (also written to the new system below)
 GITCONF='[http]
