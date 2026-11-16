@@ -13,4 +13,7 @@ echo "cmdline: $CMD initrd=\\$UC initrd=\\initramfs-linux-mini.img"
 for n in $(efibootmgr | awk '/ Artix-mini([[:space:]]|$)/{sub(/Boot/,"");sub(/\*.*/,"");print}'); do doas efibootmgr -q -b "$n" -B; done
 doas efibootmgr -q --create --disk "$DISK" --part "$PART" --label Artix-mini \
 	--loader /vmlinuz-linux-mini --unicode "$CMD initrd=\\$UC initrd=\\initramfs-linux-mini.img"
-echo "==> Artix-mini recreated with ro. Test once: fix mini   (default after it works: fix keepmini)"
+n=$(efibootmgr | awk '/ Artix-mini([[:space:]]|$)/{print substr($1,5,4); exit}')
+doas efibootmgr -q -n "$n"
+echo "==> Artix-mini recreated with ro; it boots once on the next reboot (zen stays default)."
+printf 'Reboot now? [y/N] '; read -r a </dev/tty; [ "$a" = y ] && doas reboot
