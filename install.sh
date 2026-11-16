@@ -290,8 +290,11 @@ ROOT_PASS=$(ask_pass "root password")
 USER_PASS=$(ask_pass "$USERNAME password")
 
 step "Step 3/5: hardware and network"
-echo "GPU: 1) NVIDIA  2) AMD  3) other / virtual machine" >&2
-GPU=$(ask "GPU" 1)
+GPU_DEF=3
+lspci 2>/dev/null | grep -Ei 'vga|3d|display' | grep -qi nvidia && GPU_DEF=1
+lspci 2>/dev/null | grep -Ei 'vga|3d|display' | grep -qiE 'amd|ati|radeon' && GPU_DEF=2
+echo "GPU: 1) NVIDIA  2) AMD  3) other / virtual machine   (detected: $GPU_DEF)" >&2
+GPU=$(ask "GPU" "$GPU_DEF")
 echo "Network: 1) automatic (DHCP)  2) static IP" >&2
 NET=$(ask "Network" 1)
 if [ "$NET" = 2 ]; then

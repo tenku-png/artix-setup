@@ -41,9 +41,18 @@ yes "" | make LSMOD="$PWD/lsmod.txt" localmodconfig >/dev/null
 set -o pipefail
 
 S=scripts/config
+# GPU drivers in use right now (e.g. amdgpu for the RX 6650 XT): never drop them
+GPUDRV=$(for d in /sys/class/drm/card*/device/driver; do basename "$(readlink "$d")"; done 2>/dev/null | sort -u | tr '\n' ' ')
+echo "==> GPU driver(s) in use: ${GPUDRV:-none}"
+keep() { case " $GPUDRV " in *" $1 "*) return 0 ;; esac; return 1; }
+DROP="" ; DROPRE=""
+for pair in amdgpu:AMDGPU radeon:RADEON i915:I915 xe:XE nouveau:NOUVEAU; do
+	drv=${pair%%:*}; cfg=${pair#*:}
+	if keep "$drv"; then $S -m "DRM_$cfg"; else DROP="$DROP -d DRM_$cfg"; DROPRE="$DROPRE|$cfg"; fi
+done
 # not used on this PC
 $S -d BT -d WLAN -d WIRELESS -d CFG80211 -d MAC80211 -d NFC -d WWAN -d CAN -d HAMRADIO
-$S -d DRM_AMDGPU -d DRM_RADEON -d DRM_I915 -d DRM_XE -d DRM_NOUVEAU
+[ -n "$DROP" ] && $S $DROP
 $S -d CPU_SUP_INTEL -d CPU_SUP_HYGON -d CPU_SUP_CENTAUR -d CPU_SUP_ZHAOXIN -d MICROCODE_INTEL
 # debugging / tracing
 $S -d DEBUG_KERNEL -e DEBUG_INFO_NONE -d DEBUG_INFO_BTF -d FTRACE -d KPROBES -d PROFILING \
@@ -53,10 +62,10 @@ $S -e SECURITY -e SECURITY_LANDLOCK -e MODULES -e BLK_DEV_INITRD -e IKCONFIG -e 
 	-e NAMESPACES -e USER_NS -e CGROUPS -e TUN -e BTRFS_FS -e VFAT_FS -e EXFAT_FS -e NTFS3_FS \
 	-e DRM -e DRM_FBDEV_EMULATION -e SYSFB_SIMPLEFB -e DRM_SIMPLEDRM -e INPUT_UINPUT
 $S --set-str LOCALVERSION "-mini" -d LOCALVERSION_AUTO
-# Graphics stack exactly as in zen: localmodconfig drops DRM/fbdev helpers
-# the out-of-tree NVIDIA driver needs (fbdev console, KMS for compositors)
+# Graphics stack as in zen (localmodconfig drops DRM/fbdev helpers that
+# amdgpu and the out-of-tree NVIDIA driver need); unused GPU drivers stay off
 grep -E '^CONFIG_(DRM|FB|FRAMEBUFFER|FONT|VT|DUMMY_CONSOLE|DMA_SHARED|DMABUF|SYNC_FILE|SW_SYNC|UDMABUF|VIDEO|BACKLIGHT|HDMI|AGP|VGA|SYSFB|AUXDISPLAY|I2C|EFI)[A-Z0-9_]*=[ym]' zen.config |
-	grep -vE '^CONFIG_DRM_(AMDGPU|RADEON|I915|XE|NOUVEAU|VMWGFX|QXL|BOCHS|VIRTIO|VBOXVIDEO|GMA500|MGAG200|AST|HISI|HYPERV|XEN)' >> .config
+	grep -vE "^CONFIG_DRM_(${DROPRE#|}${DROPRE:+|}VMWGFX|QXL|BOCHS|VIRTIO|VBOXVIDEO|GMA500|MGAG200|AST|HISI|HYPERV|XEN)" >> .config
 make olddefconfig >/dev/null
 echo "==> config: $(grep -c '=y' .config) built-in, $(grep -c '=m' .config) modules"
 
@@ -69,10 +78,15 @@ doas install -m644 arch/x86/boot/bzImage "/boot/vmlinuz-$NAME"
 # dkms modules (nvidia, amneziawg) need the build tree: /usr/lib/modules/$KVER/build
 doas ln -sfn "$PWD" "/usr/lib/modules/$KVER/build"
 # modules_install wiped earlier dkms modules: drop stale dkms records first
-for m in $(dkms status -k "$KVER" 2>/dev/null | cut -d, -f1 | sort -u); do doas dkms remove "$m" -k "$KVER" >/dev/null 2>&1; done
-doas dkms autoinstall -k "$KVER" || echo "!! dkms failed: NVIDIA/AmneziaWG may be missing on $NAME"
+if command -v dkms >/dev/null; then
+	for m in $(dkms status -k "$KVER" 2>/dev/null | cut -d, -f1 | sort -u); do doas dkms remove "$m" -k "$KVER" >/dev/null 2>&1; done
+	doas dkms autoinstall -k "$KVER" || echo "!! dkms failed: out-of-tree modules may be missing on $NAME"
+fi
 doas depmod -a "$KVER"
-echo amneziawg | doas tee /etc/modules-load.d/amneziawg.conf >/dev/null
+# Only autoload modules that exist, or dinit's early-modules.target fails
+modinfo -k "$KVER" amneziawg >/dev/null 2>&1 &&
+	echo amneziawg | doas tee /etc/modules-load.d/amneziawg.conf >/dev/null
+modinfo -k "$KVER" amdgpu >/dev/null 2>&1 || ! keep amdgpu || { echo "!! amdgpu missing in $KVER, not installing a boot entry"; exit 1; }
 doas mkinitcpio -k "$KVER" -g "/boot/initramfs-$NAME.img"
 
 echo "==> boot entry \"Artix-mini\" (zen entry \"Artix\" is kept)"
