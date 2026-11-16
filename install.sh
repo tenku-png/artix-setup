@@ -13,7 +13,8 @@ MNT=/mnt
 
 # ---------------------------------------------------------------- helpers
 DRY_RUN=n; [ "${1:-}" = "--dry-run" ] && DRY_RUN=y
-RESUME=n; [ "${1:-}" = "--resume-swayfx" ] && RESUME=y
+RESUME_SWAYFX=n; [ "${1:-}" = "--resume-swayfx" ] && RESUME_SWAYFX=y
+RESUME_INSTALL=n; [ "${1:-}" = "--resume" ] && RESUME_INSTALL=y
 MIRRORS_ONLY=n; [ "${1:-}" = "--repair-mirrors" ] && MIRRORS_ONLY=y
 c_b=$'\e[1m'; c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 say()  { printf '%s==>%s %s\n' "$c_g$c_b" "$c_0" "$*"; }
@@ -64,10 +65,19 @@ part_dev() { case $1 in *nvme*|*mmcblk*|*loop*) echo "${1}p$2" ;; *) echo "${1}$
 in_chroot() { artix-chroot "$MNT" /bin/bash -euo pipefail -c "$1"; }
 retry() { local i; for i in 1 2 3; do "$@" && return 0; warn "failed (try $i/3), retrying..."; sleep 3; done; return 1; }
 as_user()   { artix-chroot "$MNT" /bin/su - "$USERNAME" -c "set -e; $1"; }
+link() { ln -sf "/etc/dinit.d/$1" "$MNT/etc/dinit.d/boot.d/$1"; }
 # Read a package group file: prints "repo" or "aur" packages
 pkgs() { # pkgs file repo|aur
 	sed 's/#.*//' "$REPO/packages/$1" | tr -s ' \t' '\n' | sed '/^$/d' |
 	if [ "$2" = aur ]; then sed -n 's/^aur://p'; else grep -v '^aur:' || true; fi
+}
+save_resume_state() {
+	STATE_FILE="$MNT/root/.artix-setup-state"
+	{
+		printf '# Non-secret choices for safe package-stage recovery.\n'
+		declare -p USERNAME GPU WMSEL DEFAULT_WM OPT AMNEZIA SSHD
+	} > "$STATE_FILE.tmp"
+	mv "$STATE_FILE.tmp" "$STATE_FILE"
 }
 
 # Probe Artix repository databases and put the fastest working mirrors first.
@@ -104,13 +114,9 @@ prepare_artix_mirrors() { # pacman root (/, or /mnt)
 	} > "$list.new"
 	mv "$list.new" "$list"
 	rm -f "$tmp"
-	# Use bounded retries for transient transfer errors; pacman still validates
-	# every downloaded package against its signed repository metadata.
-	if [ -f "$root/etc/pacman.conf" ]; then
-		if grep -q '^\[options\]' "$root/etc/pacman.conf"; then
-			sed -i '/^XferCommand[[:space:]]*=/d; /^\[options\]/a XferCommand = /usr/bin/curl --fail --location --retry 2 --retry-all-errors --retry-max-time 90 --connect-timeout 8 --max-time 120 --output %o %u' "$root/etc/pacman.conf"
-		fi
-	fi
+	# Drop the previously configured curl XferCommand and restore pacman's
+	# built-in downloader for this root.
+	[ ! -f "$root/etc/pacman.conf" ] || sed -i '/^XferCommand[[:space:]]*=/d' "$root/etc/pacman.conf"
 	say "Artix mirrors ready (fastest reachable mirrors first): $(sed -n 's/^Server = //p' "$list" | paste -sd ' ' -)"
 }
 
@@ -142,7 +148,7 @@ fi
 
 # Safe recovery for an interrupted SwayFX install. Mount the existing root at
 # /mnt yourself first. This mode contains no partitioning or formatting calls.
-if [ "$RESUME" = y ]; then
+if [ "$RESUME_SWAYFX" = y ]; then
 	[ -f "$MNT/etc/pacman.conf" ] || die "no installed system at $MNT; mount its existing root partition there first"
 	[ -x "$MNT/usr/bin/pacman" ] || die "base system is incomplete; finish basestrap before resuming packages"
 	prepare_artix_mirrors "$MNT"
@@ -179,7 +185,39 @@ if [ "$MIRRORS_ONLY" = y ]; then
 	exit 0
 fi
 
+if [ "$RESUME_INSTALL" = y ]; then
+	[ -f "$MNT/etc/pacman.conf" ] || die "mount the existing installed root at /mnt first"
+	[ -x "$MNT/usr/bin/pacman" ] || die "installed pacman not found under /mnt"
+	STATE_FILE="$MNT/root/.artix-setup-state"
+	if [ -f "$STATE_FILE" ]; then
+		# State contains only setup choices, never passwords.
+		. "$STATE_FILE"
+		say "Restored installer choices from $STATE_FILE"
+	else
+		warn "No checkpoint exists (this installation started before checkpoints were added); repeat a few choices. Existing users, files and packages will be kept."
+		mapfile -t EXISTING_USERS < <(find "$MNT/home" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | grep -v '^lost+found$' || true)
+		USERNAME=$(ask "Existing username" "${EXISTING_USERS[0]:-}")
+		[ -n "$USERNAME" ] && [ -d "$MNT/home/$USERNAME" ] || die "user home not found under $MNT/home"
+		HOST=$(cat "$MNT/etc/hostname" 2>/dev/null || echo artix)
+		GPU=$(ask "GPU (1 NVIDIA, 2 AMD, 3 other/VM)" 1)
+		echo "Desktop selection: 1 lilith, 2 SwayFX, 3 both" >&2
+		WMSEL=$(ask "Desktop" 3)
+		DEFAULT_WM=$(ask "Default compositor (lilith/sway)" "$([ "$WMSEL" = 2 ] && echo sway || echo lilith)")
+		declare -A OPT
+		for g in dev android reverse games virt printer; do
+			def=n; [ "$g" = android ] && def=y
+			yes_no "Retry optional package group: $g?" "$def" && OPT[$g]=y || OPT[$g]=n
+		done
+		AMNEZIA=n; yes_no "Install AmneziaVPN?" n && AMNEZIA=y
+		SSHD=n; yes_no "Install SSH server?" n && SSHD=y
+		save_resume_state
+	fi
+	prepare_artix_mirrors "$MNT"
+	in_chroot "pacman -Syy" || die "Target repository database sync failed; no install stage was resumed."
+fi
+
 # Disk the ISO was booted from: never offered for wiping
+if [ "$RESUME_INSTALL" != y ]; then
 ISO_DISK=
 src=$(findmnt -no SOURCE /run/artix/bootmnt 2>/dev/null || true)
 # Walk up to the physical disk: also works for Ventoy (/dev/mapper/ventoy)
@@ -462,12 +500,30 @@ else
 fi
 
 # ---------------------------------------------------------------- packages
-install_group() { # repo packages of a group
+save_resume_state
+fi
+
+# Package phase is safe to repeat: all pacman calls use --needed, and the
+# --resume path skips disk, base, user, boot, and service setup entirely.
+install_group() { # install_group group [optional]; returns failure, never exits
 	local p; p=$(pkgs "$1" repo | tr '\n' ' ')
-	if [ -n "$p" ]; then retry in_chroot "pacman -S --needed --noconfirm --ask=4 $p" || die "Package group $1 failed after three attempts. Check mirror/network diagnostics, then resume package installation; disks were already prepared."; fi
+	[ -n "$p" ] || return 0
+	retry in_chroot "pacman -S --needed --noconfirm --ask=4 $p"
 }
 AUR_PKGS=()
 AUR_FAILED=()
+FAILED_OPTIONAL=()
+FAILED_PACKAGES=()
+INSTALL_LOG="$MNT/var/log/artix-setup-install.log"
+record_optional_failure() {
+	local component=$1 detail=${2:-$1}
+	FAILED_OPTIONAL+=("$component")
+	mkdir -p "$(dirname "$INSTALL_LOG")"
+	printf '%s optional component failed: %s\n' "$(date -Is)" "$detail" | tee -a "$INSTALL_LOG" >&2
+}
+required_group() {
+	install_group "$1" || die "Required package group $1 failed after retries. See $INSTALL_LOG."
+}
 add_aur() { local p; while read -r p; do [ -n "$p" ] && AUR_PKGS+=("$p"); done < <(pkgs "$1" aur); }
 
 say "GPU drivers"
@@ -483,15 +539,21 @@ say "Desktop packages"
 # Install the preferred providers first so --noconfirm never picks the wrong
 # one (jack2 instead of pipewire-jack, a random ttf-font, ...)
 retry in_chroot "pacman -S --needed --noconfirm ttf-dejavu pipewire pipewire-jack pipewire-pulse" || die "Core desktop package installation failed after three attempts."
-install_group audio.txt;   add_aur audio.txt
-install_group desktop.txt; add_aur desktop.txt
-[ "$WMSEL" != 2 ] && install_group lilith.txt
-[ "$WMSEL" != 1 ] && install_group swayfx.txt
-install_group net.txt
+required_group audio.txt;   add_aur audio.txt
+required_group desktop.txt; add_aur desktop.txt
+if [ "$WMSEL" != 2 ]; then required_group lilith.txt; add_aur lilith.txt; fi
+if [ "$WMSEL" != 1 ]; then required_group swayfx.txt; add_aur swayfx.txt; fi
+required_group net.txt
 for g in dev android reverse games virt printer; do
 	[ "${OPT[$g]}" = y ] || continue
 	say "Group: $g"
-	install_group "$g.txt"; add_aur "$g.txt"
+	if install_group "$g.txt"; then
+		add_aur "$g.txt"
+	else
+		mapfile -t group_packages < <(pkgs "$g.txt" repo)
+		FAILED_PACKAGES+=("${group_packages[@]}")
+		record_optional_failure "$g.txt" "packages failed: ${group_packages[*]}"
+	fi
 done
 [ "$AMNEZIA" = y ] && AUR_PKGS+=(amneziavpn-bin)
 
@@ -500,18 +562,20 @@ say "paru (AUR helper)"
 mkdir -p "$MNT/home/$USERNAME/.config/paru"
 printf '[bin]\nSudo = doas\n' > "$MNT/home/$USERNAME/.config/paru/paru.conf"
 in_chroot "chown -R $USERNAME: /home/$USERNAME/.config"
-retry as_user "cd /tmp && rm -rf paru-bin && git clone https://aur.archlinux.org/paru-bin.git && cd paru-bin && makepkg -si --noconfirm"
+if [ ! -x "$MNT/usr/bin/paru" ]; then
+	retry as_user "cd /tmp && rm -rf paru-bin && git clone https://aur.archlinux.org/paru-bin.git && cd paru-bin && makepkg -si --noconfirm" || die "Could not install required AUR helper paru after retries."
+fi
 
 if [ ${#AUR_PKGS[@]} -gt 0 ]; then
 	say "AUR packages: ${AUR_PKGS[*]}"
 	# One by one: a single failing package must not take the others down
 	for p in "${AUR_PKGS[@]}"; do
 		say "AUR: $p"
-		retry as_user "paru -S --needed --noconfirm --skipreview $p" || AUR_FAILED+=("$p")
+		retry as_user "paru -S --needed --noconfirm --skipreview $p" || { AUR_FAILED+=("$p"); FAILED_PACKAGES+=("$p"); record_optional_failure "$p" "AUR package install failed"; }
 	done
 fi
 
-if [ "$WMSEL" != 1 ]; then
+if [ "$WMSEL" != 1 ] && ! artix-chroot "$MNT" pacman -Q swayfx >/dev/null 2>&1; then
 	say "SwayFX $SWAYFX_AUR_COMMIT with the middle-drag patch"
 	cp "$REPO/configs/swayfx/middle-drag.patch" "$MNT/tmp/"
 	as_user "paru -S --needed --noconfirm --skipreview wlroots0.19 scenefx0.4 &&
@@ -523,7 +587,7 @@ if [ "$WMSEL" != 1 ]; then
 		makepkg -efi --noconfirm" || die "SwayFX installation failed; the install is incomplete. After mounting the existing root at /mnt, run install.sh --resume-swayfx."
 fi
 
-if [ "$WMSEL" != 2 ]; then
+if [ "$WMSEL" != 2 ] && ! artix-chroot "$MNT" /bin/bash -c 'command -v lilith >/dev/null 2>&1'; then
 	say "lilith (liwm, branch $LIWM_BRANCH)"
 	retry as_user "rm -rf ~/liwm && git clone -b $LIWM_BRANCH $LIWM_URL ~/liwm && cd ~/liwm && make && doas make install" ||
 		die "lilith installation failed; the install is incomplete. After mounting the existing root at /mnt, repair its dependencies and retry the build in ~/liwm."
@@ -561,7 +625,7 @@ mkdir -p "$MNT/etc/polkit-1/rules.d"
 cp "$REPO/configs/polkit/50-wheel-noauth.rules" "$MNT/etc/polkit-1/rules.d/"
 
 if [ "${OPT[virt]}" = y ]; then
-	cat "$REPO/configs/libvirt/libvirtd.conf.d-socket" >> "$MNT/etc/libvirt/libvirtd.conf"
+	grep -Fq 'unix_sock_group = "libvirt"' "$MNT/etc/libvirt/libvirtd.conf" 2>/dev/null || cat "$REPO/configs/libvirt/libvirtd.conf.d-socket" >> "$MNT/etc/libvirt/libvirtd.conf"
 	in_chroot "usermod -aG libvirt,kvm $USERNAME"
 	link libvirtd 2>/dev/null || true
 	[ -e "$MNT/etc/dinit.d/virtlogd" ] && link virtlogd
@@ -591,6 +655,11 @@ if [ ${#AUR_FAILED[@]} -gt 0 ]; then
 	warn "These AUR packages did not install: ${AUR_FAILED[*]}"
 	warn "After the first boot retry them with: paru -S ${AUR_FAILED[*]}"
 	printf '%s\n' "paru -S --needed ${AUR_FAILED[*]}" >> "$H/first-login.sh"
+fi
+if [ ${#FAILED_OPTIONAL[@]} -gt 0 ]; then
+	warn "Optional components not installed: ${FAILED_OPTIONAL[*]}"
+	warn "Packages to retry: ${FAILED_PACKAGES[*]}"
+	warn "Failure details: $INSTALL_LOG"
 fi
 cat <<EOF
 

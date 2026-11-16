@@ -79,12 +79,31 @@ bash install.sh --repair-mirrors
 
 The installer probes current Artix mirror entries and three official fallback
 mirrors for the `system.db` repository database, sorts reachable servers by
-response time, and configures bounded curl retries for pacman downloads. It
-then syncs repository databases inside the mounted target with pacman. Package
+response time, removes any old custom downloader setting, then syncs repository
+databases inside the mounted target with pacman's built-in downloader. Package
 signature checks remain enabled. This repair mode does not format, repartition,
 unmount, or install/remove packages; after a successful sync, retry the pacman
 command that failed. A full installer run remains destructive to its selected
 Linux root partition, so do not use it to resume a partial install.
+
+### Resume an interrupted installation
+
+Mount the existing root Btrfs subvolume at `/mnt` and its existing EFI
+partition at `/mnt/boot`. Download the current installer and run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/tenku-png/artix-setup/main/install.sh -o install.sh
+bash install.sh --resume
+```
+
+The installer restores saved non-secret choices from
+`/mnt/root/.artix-setup-state`, skips partitioning, formatting, base setup,
+user creation, boot setup, and service setup, then retries the package/config
+stage idempotently. Optional package-group failures are logged to
+`/mnt/var/log/artix-setup-install.log` and reported at the end while later
+groups continue. If no checkpoint exists from an older partial run, it asks for
+the existing username and package selections without recreating the user or
+touching disks.
 
 ## Layout
 
