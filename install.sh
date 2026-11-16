@@ -99,11 +99,17 @@ fi
 if [ "$RESUME" = y ]; then
 	[ -f "$MNT/etc/pacman.conf" ] || die "no installed system at $MNT; mount its existing root partition there first"
 	[ -x "$MNT/usr/bin/pacman" ] || die "base system is incomplete; finish basestrap before resuming packages"
-	[ -x "$MNT/usr/bin/paru" ] || die "paru is missing; complete AUR-helper setup before resuming"
 	USERNAME=$(ask "Installed username" "")
 	[ -d "$MNT/home/$USERNAME" ] || die "user home not found: $MNT/home/$USERNAME"
 	step "Repairing pinned SwayFX dependencies and build"
 	in_chroot "pacman -Syu --needed --noconfirm git base-devel meson ninja"
+	mkdir -p "$MNT/home/$USERNAME/.config/paru"
+	printf '[bin]\nSudo = doas\n' > "$MNT/home/$USERNAME/.config/paru/paru.conf"
+	in_chroot "chown -R $USERNAME: /home/$USERNAME/.config"
+	if [ ! -x "$MNT/usr/bin/paru" ]; then
+		say "Bootstrapping paru (the failed install may have stopped before AUR setup)"
+		as_user "cd /tmp && rm -rf paru-bin && git clone https://aur.archlinux.org/paru-bin.git && cd paru-bin && makepkg -si --noconfirm"
+	fi
 	cp "$REPO/configs/swayfx/middle-drag.patch" "$MNT/tmp/"
 	as_user "paru -S --needed --noconfirm --skipreview wlroots0.19 scenefx0.4 &&
 		cd /tmp && rm -rf swayfx && git clone https://aur.archlinux.org/swayfx.git && cd swayfx &&
