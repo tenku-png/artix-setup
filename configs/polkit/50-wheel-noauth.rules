@@ -1,12 +1,15 @@
-// Members of "wheel" may mount disks (udisks2, used by thunar), manage
-// VMs (libvirt) and install flatpaks without a password prompt, so no polkit agent is needed.
-// Install: /etc/polkit-1/rules.d/50-wheel-noauth.rules
+// Let an active local wheel user mount removable filesystems, unlock a volume
+// after supplying its passphrase, and set up loop devices for disk images.
+// Keep destructive disk management, system drives and Flatpak actions under
+// their normal policies. Libvirt socket access is configured separately.
 polkit.addRule(function(action, subject) {
     if (!subject.isInGroup("wheel") || !subject.local || !subject.active)
         return polkit.Result.NOT_HANDLED;
-    if (action.id.indexOf("org.freedesktop.udisks2.") === 0 ||
-        action.id.indexOf("org.libvirt.") === 0 ||
-        action.id.indexOf("org.freedesktop.Flatpak.") === 0)
+    if ([
+        "org.freedesktop.udisks2.filesystem-mount",
+        "org.freedesktop.udisks2.encrypted-unlock",
+        "org.freedesktop.udisks2.loop-setup"
+    ].indexOf(action.id) !== -1)
         return polkit.Result.YES;
     return polkit.Result.NOT_HANDLED;
 });

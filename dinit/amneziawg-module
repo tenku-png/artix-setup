@@ -1,0 +1,4 @@
+# Load the AmneziaWG kernel module before the tunnel service.
+type         = scripted
+command      = /usr/bin/modprobe amneziawg
+stop-command = /usr/bin/true

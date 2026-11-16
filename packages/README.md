@@ -12,7 +12,7 @@ One file per group; the installer asks which optional groups to install.
 | android.txt, reverse.txt | Android and reverse engineering |
 | games.txt | Steam; flatpak only for Sober (`flatpak install flathub org.vinegarhq.Sober`) |
 | net.txt | network and archive tools; torrents via `aria2c file.torrent` |
-| virt.txt | QEMU + virt-manager (libvirt group, no polkit agent) |
+| virt.txt | QEMU + virt-manager (libvirt group, no polkit agent; group members can fully manage libvirt) |
 | printer.txt | optional printing/scanning |
 | aur.txt | AUR packages via paru |
 

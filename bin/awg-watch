@@ -1,17 +1,25 @@
 #!/bin/sh
-# Keep the AmneziaWG tunnel awg0 alive: bring it up if missing, restart it
-# when the last handshake is older than 3 minutes. Run by dinit (awg-watch).
+# Keep AmneziaWG up from boot. Wait for a routed network, retry failed setup,
+# and recover a stale peer. Run as the dinit `awg` process service.
 IF=${1:-awg0}
+up() { /usr/bin/awg-quick up "$IF" >/dev/null 2>&1; }
+down() { /usr/bin/awg-quick down "$IF" >/dev/null 2>&1 || true; }
+trap down EXIT
+trap 'exit 0' HUP INT TERM
 while :; do
 	if ! ip link show "$IF" >/dev/null 2>&1; then
-		awg-quick up "$IF" >/dev/null 2>&1
+		if ip route show default | grep -q . || ip -6 route show default | grep -q .; then
+			up || sleep 5
+		else
+			sleep 5
+		fi
 	else
-		hs=$(awg show "$IF" latest-handshakes 2>/dev/null | awk '{print $2; exit}')
+		hs=$(/usr/bin/awg show "$IF" latest-handshakes 2>/dev/null | awk '{print $2; exit}')
 		now=$(date +%s)
 		if [ -n "$hs" ] && [ "$hs" -gt 0 ] && [ $((now - hs)) -gt 180 ]; then
-			awg-quick down "$IF" >/dev/null 2>&1
-			awg-quick up "$IF" >/dev/null 2>&1
+			down
+			up || sleep 5
 		fi
 	fi
-	sleep 30
+	sleep 10
 done

@@ -1,0 +1,7 @@
+# Maintain the configured AmneziaWG tunnel from boot; profile is root-only.
+type         = process
+command      = /usr/local/bin/awg-watch awg0
+depends-on   = network.target amneziawg-module
+restart      = true
+restart-delay = 5
+smooth-recovery = true

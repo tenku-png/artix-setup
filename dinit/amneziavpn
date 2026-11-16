@@ -1,4 +1,4 @@
-# AmneziaVPN daemon (from the upstream systemd unit). /etc/dinit.d/amneziavpn
+# Legacy AmneziaVPN GUI backend unit; the installer does not enable this.
 type            = process
 command         = /opt/AmneziaVPN/bin/AmneziaVPN-service
 depends-on      = network.target

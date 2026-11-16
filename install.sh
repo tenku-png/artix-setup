@@ -4,10 +4,13 @@
 #   curl -fsSL https://raw.githubusercontent.com/tenku-png/artix-setup/main/install.sh -o install.sh
 #   bash install.sh
 set -euo pipefail
+AWG_STAGE=
+cleanup() { [ -z "$AWG_STAGE" ] || rm -f -- "$AWG_STAGE"; }
+trap cleanup EXIT
 
-REPO_URL=https://github.com/tenku-png/artix-setup
+REPO_ARCHIVE_URL=https://github.com/tenku-png/artix-setup/archive/refs/heads/main.tar.gz
 LIWM_URL=https://github.com/tenku-png/liwm
-LIWM_BRANCH=stable          # tested build; new features land in hyprland-config first
+LIWM_BRANCH=hyprland-config # includes the updated bar and system tray
 SWAYFX_AUR_COMMIT=9add1cd   # swayfx 0.5.3 (wlroots0.19, scenefx0.4)
 MNT=/mnt
 
@@ -77,20 +80,16 @@ curl -fsS --max-time 15 -o /dev/null https://github.com 2>/dev/null ||
 	curl -fsS --max-time 15 -o /dev/null https://artixlinux.org 2>/dev/null ||
 	die "no network (try: dinitctl start dhcpcd)"
 
-pacman -Sy --needed --noconfirm git >/dev/null
-# A stalled connection makes git hang forever; abort slow transfers after
-# 20 s so retry() can try again (also written to the new system below)
-GITCONF='[http]
-	version = HTTP/1.1
-	lowSpeedLimit = 1000
-	lowSpeedTime = 20'
-printf '%s\n' "$GITCONF" > /etc/gitconfig
+# Abort slow archive downloads so retry() can try another connection. Keep
+# downloaded files in a fresh temporary directory; do not alter the live ISO.
 if [ -f "$(dirname "$0")/packages/base.txt" ]; then
 	REPO=$(cd "$(dirname "$0")" && pwd)
 else
-	REPO=/tmp/artix-setup
-	rm -rf "$REPO"
-	retry git clone --depth 1 "$REPO_URL" "$REPO"
+	REPO=$(mktemp -d /tmp/artix-setup.XXXXXX)
+	ARCHIVE=$REPO/repository.tar.gz
+	retry curl -fL --max-time 60 --speed-limit 1000 --speed-time 20 -o "$ARCHIVE" "$REPO_ARCHIVE_URL"
+	tar -xzf "$ARCHIVE" --strip-components=1 -C "$REPO"
+	rm -f "$ARCHIVE"
 fi
 
 # Disk the ISO was booted from: never offered for wiping
@@ -170,7 +169,7 @@ ROOT_PASS=$(ask_pass "root password")
 USER_PASS=$(ask_pass "$USERNAME password")
 
 step "Step 3/5: hardware and network"
-echo "GPU: 1) NVIDIA  2) AMD  3) other / virtual machine" >&2
+echo "GPU: 1) AMD (RX 6650 XT / Mesa + RADV)  2) other / virtual machine" >&2
 GPU=$(ask "GPU" 1)
 echo "Network: 1) automatic (DHCP)  2) static IP" >&2
 NET=$(ask "Network" 1)
@@ -204,7 +203,19 @@ yes_no "Reverse engineering (ghidra, il2cpp-dumper)?"          y && OPT[reverse]
 yes_no "Games (Steam, Prism Launcher, Flatpak + Sober)?"       y && OPT[games]=y
 yes_no "Virtual machines (QEMU + virt-manager)?"               y && OPT[virt]=y
 yes_no "Printer/scanner (only started when needed)?"           n && OPT[printer]=y
-AMNEZIA=n; yes_no "AmneziaVPN?" y && AMNEZIA=y
+AMNEZIA=n; AMNEZIA_CONF=; yes_no "AmneziaWG kernel module/tools?" y && AMNEZIA=y
+if [ "$AMNEZIA" = y ]; then
+	echo "Optional: mount the USB first (for example at /mnt/usb), then enter the profile path without quotes." >&2
+	echo "Example: /mnt/usb/amnz hoist.conf. The profile is staged privately before disk formatting." >&2
+	AMNEZIA_CONF=$(ask "Profile/backup path (blank = configure after installation)" "/mnt/usb/amnz hoist.conf")
+	if [ -n "$AMNEZIA_CONF" ]; then
+		command -v python3 >/dev/null || die "python3 is required to validate the private Amnezia profile safely"
+		AWG_STAGE=$(mktemp /tmp/artix-awg-profile.XXXXXX)
+		chmod 600 "$AWG_STAGE"
+		python3 "$REPO/scripts/extract-awg-config.py" "$AMNEZIA_CONF" "$AWG_STAGE" ||
+			die "could not validate the AmneziaWG profile; its contents were not printed"
+	fi
+fi
 SSHD=n; yes_no "SSH server (log in to this machine over the network)?" n && SSHD=y
 
 # ---------------------------------------------------------------- plan
@@ -229,8 +240,11 @@ cat <<EOF
 
 ${c_b}System:${c_0} $HOST, user $USERNAME, timezone $TIMEZONE, swap ${SWAP_GB} GB
 ${c_b}Desktop:${c_0} $(case $WMSEL in 1) echo lilith;; 2) echo SwayFX;; *) echo "lilith + SwayFX";; esac), starts: $DEFAULT_WM
-${c_b}GPU:${c_0} $(case $GPU in 1) echo NVIDIA;; 2) echo AMD;; *) echo "other/VM";; esac)   ${c_b}Network:${c_0} $([ "$NET" = 1 ] && echo DHCP || echo "static $ADDR")
+${c_b}GPU:${c_0} $(case $GPU in 1) echo AMD;; *) echo "other/VM";; esac)   ${c_b}Network:${c_0} $([ "$NET" = 1 ] && echo DHCP || echo "static $ADDR")
 ${c_b}Groups:${c_0} $(for g in dev android reverse games virt printer; do [ "${OPT[$g]}" = y ] && printf '%s ' "$g"; done)$([ "$AMNEZIA" = y ] && printf 'amnezia ')$([ "$SSHD" = y ] && printf 'sshd')
+if [ "$AMNEZIA" = y ]; then
+	[ -n "$AMNEZIA_CONF" ] && echo "AmneziaWG: profile supplied; tunnel will be enabled at boot" || echo "AmneziaWG: module/tools only; add profile after install with: fix awg FILE"
+fi
 EOF
 
 [ "$DRY_RUN" = y ] && { say "Dry run: nothing was changed."; exit 0; }
@@ -314,7 +328,7 @@ in_chroot "
 "
 printf 'root:%s\n%s:%s\n' "$ROOT_PASS" "$USERNAME" "$USER_PASS" | artix-chroot "$MNT" chpasswd
 # doas: persistent for wheel; temporarily passwordless for the install
-printf '%s\n' "$GITCONF" > "$MNT/etc/gitconfig"
+printf '[http]\n\tversion = HTTP/1.1\n\tlowSpeedLimit = 1000\n\tlowSpeedTime = 20\n' > "$MNT/etc/gitconfig"
 printf 'permit persist :wheel\npermit nopass %s\n' "$USERNAME" > "$MNT/etc/doas.conf"
 chmod 600 "$MNT/etc/doas.conf"
 echo 'PACMAN_AUTH=(doas)' >> "$MNT/etc/makepkg.conf"
@@ -341,7 +355,6 @@ ROOT_UUID=$(blkid -s UUID -o value "$ROOT")
 EFI_DISK=/dev/$(lsblk -no PKNAME "$EFI" | head -1)
 EFI_NUM=$(cat "/sys/class/block/$(basename "$EFI")/partition")
 CMDLINE="root=UUID=$ROOT_UUID rootflags=subvol=@ rw quiet loglevel=3"
-[ "$GPU" = 1 ] && CMDLINE+=" nvidia_drm.modeset=1 nvidia_drm.fbdev=1"
 in_chroot "efibootmgr --create --disk $EFI_DISK --part $EFI_NUM --label 'Artix' \
 	--loader /vmlinuz-linux-zen \
 	--unicode '$CMDLINE initrd=\\$UCODE.img initrd=\\initramfs-linux-zen.img'"
@@ -385,10 +398,7 @@ add_aur() { local p; while read -r p; do [ -n "$p" ] && AUR_PKGS+=("$p"); done <
 
 say "GPU drivers"
 case $GPU in
-1) in_chroot "pacman -S --needed --noconfirm nvidia-open-dkms nvidia-utils lib32-nvidia-utils libva-nvidia-driver"
-   printf 'options nvidia_drm modeset=1 fbdev=1\noptions nvidia NVreg_PreserveVideoMemoryAllocations=1\n' \
-	> "$MNT/etc/modprobe.d/nvidia.conf" ;;
-2) in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon" ;;
+1) in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon linux-firmware-amdgpu" ;;
 *) in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-swrast lib32-vulkan-swrast" ;;
 esac
 
@@ -406,7 +416,8 @@ for g in dev android reverse games virt printer; do
 	say "Group: $g"
 	install_group "$g.txt"; add_aur "$g.txt"
 done
-[ "$AMNEZIA" = y ] && AUR_PKGS+=(amneziavpn-bin)
+[ "$AMNEZIA" = y ] && AUR_PKGS+=(amneziawg-dkms amneziawg-tools)
+[ "$AMNEZIA" = y ] && in_chroot "pacman -S --needed --noconfirm dkms openresolv"
 
 # ---------------------------------------------------------------- AUR
 say "paru (AUR helper)"
@@ -480,8 +491,24 @@ if [ "${OPT[virt]}" = y ]; then
 	[ -e "$MNT/etc/dinit.d/virtlogd" ] && link virtlogd
 fi
 if [ "$AMNEZIA" = y ]; then
-	cp "$REPO/dinit/amneziavpn" "$MNT/etc/dinit.d/"
-	link amneziavpn
+	ZEN_KVER=$(find "$MNT/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -name '*-zen' -printf '%f\n' | sort -V | tail -n1)
+	if in_chroot "pacman -Qq amneziawg-dkms amneziawg-tools >/dev/null 2>&1" &&
+		[ -n "$ZEN_KVER" ] && in_chroot "modinfo -k '$ZEN_KVER' amneziawg >/dev/null 2>&1"; then
+		cp "$REPO/dinit/amneziawg-module" "$MNT/etc/dinit.d/"
+		link amneziawg-module
+		if [ -n "$AMNEZIA_CONF" ]; then
+			install -d -m700 "$MNT/etc/amnezia/amneziawg"
+			install -m600 "$AWG_STAGE" "$MNT/etc/amnezia/amneziawg/awg0.conf"
+			cp "$REPO/dinit/awg" "$MNT/etc/dinit.d/"
+			link awg
+		else
+			warn "AmneziaWG packages are installed; add an exported profile after first boot with: fix awg /path/to/profile.conf"
+		fi
+	elif in_chroot "pacman -Qq amneziawg-dkms amneziawg-tools >/dev/null 2>&1"; then
+		warn "AmneziaWG DKMS module did not build for $ZEN_KVER; retry after first boot with: doas dkms autoinstall -k $ZEN_KVER. No VPN boot service was enabled."
+	else
+		warn "AmneziaWG packages did not install; retry after first boot with: paru -S amneziawg-dkms amneziawg-tools, then run fix awg /path/to/profile.conf"
+	fi
 fi
 [ "${OPT[games]}" = y ] && in_chroot "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo" || true
 

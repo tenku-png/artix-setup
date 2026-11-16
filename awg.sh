@@ -1,8 +1,11 @@
 #!/bin/bash
 # AmneziaWG without the GUI: kernel module + awg-quick + dinit service.
 #   fix awg /path/to/exported.conf
-set -e
+set -euo pipefail
 CONF=${1:-}
+TMP_CONF=
+cleanup() { [ -z "$TMP_CONF" ] || rm -f -- "$TMP_CONF"; }
+trap cleanup EXIT
 if [ -z "$CONF" ] || [ ! -f "$CONF" ]; then
 	echo "usage: fix awg /path/to/config.conf   (or an Amnezia .backup file)"
 	echo "Export it in the Amnezia app: server -> Share -> AmneziaWG format (.conf)."
@@ -12,6 +15,7 @@ fi
 if grep -q '"containers"' "$CONF" 2>/dev/null || ! grep -q '^\[Interface\]' "$CONF"; then
 	echo "==> reading AmneziaWG config from the Amnezia backup"
 	out=$(mktemp)
+	TMP_CONF=$out
 	python3 - "$CONF" "$out" <<'PY' || { echo "No AmneziaWG config found in this backup."; exit 1; }
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -49,6 +53,10 @@ fi
 echo "==> installing amneziawg (kernel module via dkms), tools, openresolv"
 doas pacman -S --needed --noconfirm openresolv linux-zen-headers dkms >/dev/null
 for i in 1 2 3; do paru -S --needed --noconfirm --skipreview amneziawg-dkms amneziawg-tools && break; echo "retry $i/3"; sleep 3; done
+pacman -Q amneziawg-dkms amneziawg-tools >/dev/null 2>&1 || {
+	echo "AmneziaWG packages failed to install; check paru output and matching kernel headers." >&2
+	exit 1
+}
 doas modprobe amneziawg
 
 echo "==> config -> /etc/amnezia/amneziawg/awg0.conf"
@@ -57,25 +65,18 @@ doas install -Dm600 "$CONF" /etc/amnezia/amneziawg/awg0.conf
 doas grep -q '^PersistentKeepalive' /etc/amnezia/amneziawg/awg0.conf ||
 	doas sed -i '/^\[Peer\]/a PersistentKeepalive = 25' /etc/amnezia/amneziawg/awg0.conf
 
-echo "==> stop the Amnezia GUI service (no longer needed)"
-doas dinitctl stop amneziavpn >/dev/null 2>&1 || true
-doas rm -f /etc/dinit.d/boot.d/amneziavpn
-
-printf '%s\n' '# AmneziaWG tunnel awg0. /etc/dinit.d/awg' 'type         = scripted' \
-	'command      = /usr/bin/awg-quick up awg0' 'stop-command = /usr/bin/awg-quick down awg0' \
-	'depends-on   = network.target' | doas tee /etc/dinit.d/awg >/dev/null
-doas ln -sf /etc/dinit.d/awg /etc/dinit.d/boot.d/awg
-# let openresolv own /etc/resolv.conf (dhcpcd/the GUI wrote it before)
-doas resolvconf -u 2>/dev/null || true
-doas dinitctl restart awg 2>/dev/null || doas dinitctl start awg
-
-echo "==> watchdog (restarts the tunnel if it stops working)"
 R="https://raw.githubusercontent.com/tenku-png/artix-setup/${REF:-main}"
+curl -fsSL "$R/dinit/amneziawg-module" | doas tee /etc/dinit.d/amneziawg-module >/dev/null
+curl -fsSL "$R/dinit/awg" | doas tee /etc/dinit.d/awg >/dev/null
+doas ln -sf /etc/dinit.d/amneziawg-module /etc/dinit.d/boot.d/amneziawg-module
+doas ln -sf /etc/dinit.d/awg /etc/dinit.d/boot.d/awg
+# refresh DNS after the tunnel profile's resolver settings are installed
+doas resolvconf -u 2>/dev/null || true
+
+echo "==> boot service with network wait/retry and tunnel recovery"
 curl -fsSL "$R/bin/awg-watch" | doas tee /usr/local/bin/awg-watch >/dev/null
 doas chmod +x /usr/local/bin/awg-watch
-curl -fsSL "$R/dinit/awg-watch" | doas tee /etc/dinit.d/awg-watch >/dev/null
-doas ln -sf /etc/dinit.d/awg-watch /etc/dinit.d/boot.d/awg-watch
-doas dinitctl start awg-watch >/dev/null 2>&1 || true
+doas dinitctl restart awg 2>/dev/null || doas dinitctl start awg
 
 sleep 2
 doas awg show awg0 | head -8
@@ -83,6 +84,6 @@ echo "==> speed through the tunnel:"
 curl -s -o /dev/null --max-time 12 -w '%{speed_download}' 'https://speed.cloudflare.com/__down?bytes=20000000' |
 	awk '{printf "    %.1f MB/s\n", $1/1048576}'
 cat <<'MSG'
-Done. The VPN now starts at boot by itself (no app, no background process).
+Done. The AmneziaWG tunnel is managed by dinit and retries while the network comes up.
   off:  doas dinitctl stop awg      on:  doas dinitctl start awg
 MSG
