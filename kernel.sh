@@ -60,7 +60,7 @@ $S -d DEBUG_KERNEL -e DEBUG_INFO_NONE -d DEBUG_INFO_BTF -d FTRACE -d KPROBES -d 
 # keep what the system relies on
 $S -e SECURITY -e SECURITY_LANDLOCK -e MODULES -e BLK_DEV_INITRD -e IKCONFIG -e IKCONFIG_PROC \
 	-e NAMESPACES -e USER_NS -e CGROUPS -e TUN -e BTRFS_FS -e VFAT_FS -e EXFAT_FS -e NTFS3_FS \
-	-e DRM -e DRM_FBDEV_EMULATION -e SYSFB_SIMPLEFB -e DRM_SIMPLEDRM -e INPUT_UINPUT
+	-m WIREGUARD -e DRM -e DRM_FBDEV_EMULATION -e SYSFB_SIMPLEFB -e DRM_SIMPLEDRM -e INPUT_UINPUT
 $S --set-str LOCALVERSION "-mini" -d LOCALVERSION_AUTO
 # Graphics stack as in zen (localmodconfig drops DRM/fbdev helpers that
 # amdgpu and the out-of-tree NVIDIA driver need); unused GPU drivers stay off
