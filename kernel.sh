@@ -66,6 +66,9 @@ $S --set-str LOCALVERSION "-mini" -d LOCALVERSION_AUTO
 # amdgpu and the out-of-tree NVIDIA driver need); unused GPU drivers stay off
 grep -E '^CONFIG_(DRM|FB|FRAMEBUFFER|FONT|VT|DUMMY_CONSOLE|DMA_SHARED|DMABUF|SYNC_FILE|SW_SYNC|UDMABUF|VIDEO|BACKLIGHT|HDMI|AGP|VGA|SYSFB|AUXDISPLAY|I2C|EFI)[A-Z0-9_]*=[ym]' zen.config |
 	grep -vE "^CONFIG_DRM_(${DROPRE#|}${DROPRE:+|}VMWGFX|QXL|BOCHS|VIRTIO|VBOXVIDEO|GMA500|MGAG200|AST|HISI|HYPERV|XEN)" >> .config
+# Netfilter as in zen: localmodconfig keeps only loaded nft modules, so
+# awg-quick's rules (table ip ..., ct mark, fib) failed with "No such file"
+grep -E '^CONFIG_(NETFILTER|NF_|NFT_|IP_NF|IP6_NF|NF_TABLES|IP_ADVANCED_ROUTER|IP_MULTIPLE_TABLES|IPV6_MULTIPLE_TABLES|FIB_RULES)[A-Z0-9_]*=[ym]' zen.config >> .config
 make olddefconfig >/dev/null
 echo "==> config: $(grep -c '=y' .config) built-in, $(grep -c '=m' .config) modules"
 
