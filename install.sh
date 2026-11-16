@@ -13,8 +13,8 @@ MNT=/mnt
 
 # ---------------------------------------------------------------- helpers
 DRY_RUN=n; [ "${1:-}" = "--dry-run" ] && DRY_RUN=y
-RESUME_SWAYFX=n; [ "${1:-}" = "--resume-swayfx" ] && RESUME_SWAYFX=y
-RESUME_INSTALL=n; [ "${1:-}" = "--resume" ] && RESUME_INSTALL=y
+RESUME_INSTALL=n
+case "${1:-}" in --resume|--resume-swayfx) RESUME_INSTALL=y ;; esac
 MIRRORS_ONLY=n; [ "${1:-}" = "--repair-mirrors" ] && MIRRORS_ONLY=y
 c_b=$'\e[1m'; c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 say()  { printf '%s==>%s %s\n' "$c_g$c_b" "$c_0" "$*"; }
@@ -64,7 +64,7 @@ describe() {
 part_dev() { case $1 in *nvme*|*mmcblk*|*loop*) echo "${1}p$2" ;; *) echo "${1}$2" ;; esac; }
 in_chroot() { artix-chroot "$MNT" /bin/bash -euo pipefail -c "$1"; }
 retry() { local i; for i in 1 2 3; do "$@" && return 0; warn "failed (try $i/3), retrying..."; sleep 3; done; return 1; }
-as_user()   { artix-chroot "$MNT" /bin/su - "$USERNAME" -c "set -e; $1"; }
+as_user()   { artix-chroot "$MNT" /bin/su -s /bin/bash - "$USERNAME" -c "set -euo pipefail; $1"; }
 link() { ln -sf "/etc/dinit.d/$1" "$MNT/etc/dinit.d/boot.d/$1"; }
 # Read a package group file: prints "repo" or "aur" packages
 pkgs() { # pkgs file repo|aur
@@ -77,7 +77,22 @@ save_resume_state() {
 		printf '# Non-secret choices for safe package-stage recovery.\n'
 		declare -p USERNAME GPU WMSEL DEFAULT_WM OPT AMNEZIA SSHD
 	} > "$STATE_FILE.tmp"
+	chmod 600 "$STATE_FILE.tmp"
 	mv "$STATE_FILE.tmp" "$STATE_FILE"
+}
+WLROOTS_SIGNING_FPR=34FF9526CFEF0E97A340E2E40FDE7BE0E88F5E48
+prepare_wlroots_signing_key() {
+	local keyfile="$MNT/tmp/wlroots-0.19-signing-key.asc" actual
+	say "Fetching and verifying wlroots signing key fingerprint"
+	mkdir -p "$MNT/tmp"
+	curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 \
+		"https://keys.openpgp.org/vks/v1/by-fingerprint/$WLROOTS_SIGNING_FPR" -o "$keyfile" ||
+		die "Could not fetch the wlroots signing key from keys.openpgp.org."
+	actual=$(artix-chroot "$MNT" /usr/bin/gpg --batch --show-keys --with-colons /tmp/wlroots-0.19-signing-key.asc |
+		awk -F: '$1 == "fpr" {print $10; exit}')
+	[ "$actual" = "$WLROOTS_SIGNING_FPR" ] ||
+		die "wlroots signing key fingerprint mismatch (expected $WLROOTS_SIGNING_FPR, got ${actual:-none})."
+	as_user "install -d -m 700 ~/.gnupg && gpg --batch --import /tmp/wlroots-0.19-signing-key.asc"
 }
 
 # Probe Artix repository databases and put the fastest working mirrors first.
@@ -146,35 +161,6 @@ else
 	retry git clone --depth 1 "$REPO_URL" "$REPO"
 fi
 
-# Safe recovery for an interrupted SwayFX install. Mount the existing root at
-# /mnt yourself first. This mode contains no partitioning or formatting calls.
-if [ "$RESUME_SWAYFX" = y ]; then
-	[ -f "$MNT/etc/pacman.conf" ] || die "no installed system at $MNT; mount its existing root partition there first"
-	[ -x "$MNT/usr/bin/pacman" ] || die "base system is incomplete; finish basestrap before resuming packages"
-	prepare_artix_mirrors "$MNT"
-	USERNAME=$(ask "Installed username" "")
-	[ -d "$MNT/home/$USERNAME" ] || die "user home not found: $MNT/home/$USERNAME"
-	step "Repairing pinned SwayFX dependencies and build"
-	in_chroot "pacman -Syyu --needed --noconfirm git base-devel meson ninja" || die "Target package sync/update failed after mirror retries; inspect pacman errors above."
-	mkdir -p "$MNT/home/$USERNAME/.config/paru"
-	printf '[bin]\nSudo = doas\n' > "$MNT/home/$USERNAME/.config/paru/paru.conf"
-	in_chroot "chown -R $USERNAME: /home/$USERNAME/.config"
-	if [ ! -x "$MNT/usr/bin/paru" ]; then
-		say "Bootstrapping paru (the failed install may have stopped before AUR setup)"
-		as_user "cd /tmp && rm -rf paru-bin && git clone https://aur.archlinux.org/paru-bin.git && cd paru-bin && makepkg -si --noconfirm"
-	fi
-	cp "$REPO/configs/swayfx/middle-drag.patch" "$MNT/tmp/"
-	as_user "paru -S --needed --noconfirm --skipreview wlroots0.19 scenefx0.4 &&
-		cd /tmp && rm -rf swayfx && git clone https://aur.archlinux.org/swayfx.git && cd swayfx &&
-		git checkout -f $SWAYFX_AUR_COMMIT &&
-		sed -i \"s/'scenefx[^']*'/'scenefx0.4'/; s/-Dsd-bus-provider=libsystemd/-Dtray=disabled/\" PKGBUILD &&
-		makepkg -o --noconfirm &&
-		patch -d src/swayfx-0.5.3 -p1 < /tmp/middle-drag.patch &&
-		makepkg -efi --noconfirm"
-	say "SwayFX recovery completed successfully."
-	exit 0
-fi
-
 # Repair package sources in an already installed target, without running any
 # installation, mount, partition, or format steps.
 if [ "$MIRRORS_ONLY" = y ]; then
@@ -186,6 +172,7 @@ if [ "$MIRRORS_ONLY" = y ]; then
 fi
 
 if [ "$RESUME_INSTALL" = y ]; then
+	mountpoint -q "$MNT" || die "$MNT is not a mountpoint; mount the existing Artix root there before resuming"
 	[ -f "$MNT/etc/pacman.conf" ] || die "mount the existing installed root at /mnt first"
 	[ -x "$MNT/usr/bin/pacman" ] || die "installed pacman not found under /mnt"
 	STATE_FILE="$MNT/root/.artix-setup-state"
@@ -212,6 +199,15 @@ if [ "$RESUME_INSTALL" = y ]; then
 		SSHD=n; yes_no "Install SSH server?" n && SSHD=y
 		save_resume_state
 	fi
+	[[ "$USERNAME" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]] || die "invalid saved username"
+	[ -d "$MNT/home/$USERNAME" ] || die "saved user home is missing: $MNT/home/$USERNAME"
+	artix-chroot "$MNT" id "$USERNAME" >/dev/null 2>&1 || die "saved user does not exist in the installed system"
+	case "$GPU" in 1|2|3) ;; *) die "invalid saved GPU selection: $GPU" ;; esac
+	case "$WMSEL" in 1|2|3) ;; *) die "invalid saved desktop selection: $WMSEL" ;; esac
+	case "$DEFAULT_WM" in lilith|sway) ;; *) die "invalid saved default compositor: $DEFAULT_WM" ;; esac
+	for g in dev android reverse games virt printer; do
+		case "${OPT[$g]:-n}" in y|n) ;; *) die "invalid saved package selection for $g" ;; esac
+	done
 	prepare_artix_mirrors "$MNT"
 	in_chroot "pacman -Syy" || die "Target repository database sync failed; no install stage was resumed."
 fi
@@ -514,6 +510,8 @@ AUR_PKGS=()
 AUR_FAILED=()
 FAILED_OPTIONAL=()
 FAILED_PACKAGES=()
+declare -A OPTIONAL_GROUP_FAILED=()
+AMNEZIA_FAILED=n
 INSTALL_LOG="$MNT/var/log/artix-setup-install.log"
 record_optional_failure() {
 	local component=$1 detail=${2:-$1}
@@ -525,12 +523,25 @@ required_group() {
 	install_group "$1" || die "Required package group $1 failed after retries. See $INSTALL_LOG."
 }
 add_aur() { local p; while read -r p; do [ -n "$p" ] && AUR_PKGS+=("$p"); done < <(pkgs "$1" aur); }
+install_amneziavpn_dinit() {
+	if artix-chroot "$MNT" pacman -Q amneziavpn-bin >/dev/null 2>&1; then
+		return 0
+	fi
+	# Upstream's ALPM scriptlet calls systemctl. Remove only those service
+	# management lines from the local build; the dinit service is installed below.
+	as_user "cd /tmp && rm -rf amneziavpn-bin && git clone https://aur.archlinux.org/amneziavpn-bin.git && cd amneziavpn-bin &&
+		sed -i '/^_srvname=/d; /^post_install() {/,/^}/d; /^post_upgrade() {/,/^}/d; /^pre_remove() {/,/^}/d' amneziavpn.install &&
+		sed -i '/AmneziaVPN\.service/d' PKGBUILD &&
+		! grep -Eq 'systemctl|AmneziaVPN\.service' amneziavpn.install PKGBUILD &&
+		makepkg -si --noconfirm"
+}
 
 say "GPU drivers"
 case $GPU in
 1) retry in_chroot "pacman -S --needed --noconfirm nvidia-open-dkms nvidia-utils lib32-nvidia-utils libva-nvidia-driver" || die "NVIDIA package installation failed after three attempts."
-   printf 'options nvidia_drm modeset=1 fbdev=1\noptions nvidia NVreg_PreserveVideoMemoryAllocations=1\n' \
-	> "$MNT/etc/modprobe.d/nvidia.conf" ;;
+   if [ ! -e "$MNT/etc/modprobe.d/nvidia.conf" ]; then
+	   printf 'options nvidia_drm modeset=1 fbdev=1\noptions nvidia NVreg_PreserveVideoMemoryAllocations=1\n' > "$MNT/etc/modprobe.d/nvidia.conf"
+	   fi ;;
 2) retry in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon" || die "AMD package installation failed after three attempts." ;;
 *) retry in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-swrast lib32-vulkan-swrast" || die "Generic GPU package installation failed after three attempts." ;;
 esac
@@ -552,6 +563,7 @@ for g in dev android reverse games virt printer; do
 	else
 		mapfile -t group_packages < <(pkgs "$g.txt" repo)
 		FAILED_PACKAGES+=("${group_packages[@]}")
+		OPTIONAL_GROUP_FAILED[$g]=y
 		record_optional_failure "$g.txt" "packages failed: ${group_packages[*]}"
 	fi
 done
@@ -566,16 +578,30 @@ if [ ! -x "$MNT/usr/bin/paru" ]; then
 	retry as_user "cd /tmp && rm -rf paru-bin && git clone https://aur.archlinux.org/paru-bin.git && cd paru-bin && makepkg -si --noconfirm" || die "Could not install required AUR helper paru after retries."
 fi
 
+# wlroots0.19 is built as an AUR dependency for either selected compositor.
+# Import and fingerprint-check its signing key before the generic AUR loop.
+prepare_wlroots_signing_key
+
 if [ ${#AUR_PKGS[@]} -gt 0 ]; then
 	say "AUR packages: ${AUR_PKGS[*]}"
 	# One by one: a single failing package must not take the others down
 	for p in "${AUR_PKGS[@]}"; do
 		say "AUR: $p"
+		if [ "$p" = amneziavpn-bin ]; then
+			if install_amneziavpn_dinit; then
+				:
+			else
+				FAILED_PACKAGES+=("$p")
+				AMNEZIA_FAILED=y
+				record_optional_failure "$p" "AUR package build/install failed with dinit-compatible scriptlet"
+			fi
+			continue
+		fi
 		retry as_user "paru -S --needed --noconfirm --skipreview $p" || { AUR_FAILED+=("$p"); FAILED_PACKAGES+=("$p"); record_optional_failure "$p" "AUR package install failed"; }
 	done
 fi
 
-if [ "$WMSEL" != 1 ] && ! artix-chroot "$MNT" pacman -Q swayfx >/dev/null 2>&1; then
+if [ "$WMSEL" != 1 ] && [ ! -e "$MNT/usr/share/artix-setup/swayfx-middle-drag" ]; then
 	say "SwayFX $SWAYFX_AUR_COMMIT with the middle-drag patch"
 	cp "$REPO/configs/swayfx/middle-drag.patch" "$MNT/tmp/"
 	as_user "paru -S --needed --noconfirm --skipreview wlroots0.19 scenefx0.4 &&
@@ -584,7 +610,8 @@ if [ "$WMSEL" != 1 ] && ! artix-chroot "$MNT" pacman -Q swayfx >/dev/null 2>&1; 
 		sed -i \"s/'scenefx[^']*'/'scenefx0.4'/; s/-Dsd-bus-provider=libsystemd/-Dtray=disabled/\" PKGBUILD &&
 		makepkg -o --noconfirm &&
 		patch -d src/swayfx-0.5.3 -p1 < /tmp/middle-drag.patch &&
-		makepkg -efi --noconfirm" || die "SwayFX installation failed; the install is incomplete. After mounting the existing root at /mnt, run install.sh --resume-swayfx."
+		makepkg -efi --noconfirm &&
+		doas install -Dm644 /dev/null /usr/share/artix-setup/swayfx-middle-drag" || die "SwayFX installation failed; the install is incomplete. After mounting the existing root at /mnt, run install.sh --resume."
 fi
 
 if [ "$WMSEL" != 2 ] && ! artix-chroot "$MNT" /bin/bash -c 'command -v lilith >/dev/null 2>&1'; then
@@ -596,47 +623,60 @@ fi
 # ---------------------------------------------------------------- configs
 say "Configs"
 H="$MNT/home/$USERNAME"
-install -m755 "$REPO"/bin/* "$MNT/usr/local/bin/"
+cp -an "$REPO"/bin/. "$MNT/usr/local/bin/"
 mkdir -p "$H/.config/sway" "$H/.config/pipewire/pipewire.conf.d" "$H/.config/fish/conf.d" \
 	"$H/.config/xdg-desktop-portal"
-cp "$REPO/configs/swayfx/config" "$H/.config/sway/config"
-cp "$REPO/configs/pipewire/pipewire.conf.d/"*.conf "$H/.config/pipewire/pipewire.conf.d/"
-echo "$DEFAULT_WM" > "$H/.config/wm"
-printf '[preferred]\ndefault=wlr;gtk\n' > "$H/.config/xdg-desktop-portal/portals.conf"
+cp -n "$REPO/configs/swayfx/config" "$H/.config/sway/config"
+cp -n "$REPO/configs/pipewire/pipewire.conf.d/"*.conf "$H/.config/pipewire/pipewire.conf.d/"
+[ -e "$H/.config/wm" ] || echo "$DEFAULT_WM" > "$H/.config/wm"
+[ -e "$H/.config/xdg-desktop-portal/portals.conf" ] ||
+	printf '[preferred]\ndefault=wlr;gtk\n' > "$H/.config/xdg-desktop-portal/portals.conf"
 # Start the compositor after logging in on tty1
+if [ ! -e "$H/.config/fish/conf.d/10-start-wm.fish" ]; then
 cat > "$H/.config/fish/conf.d/10-start-wm.fish" <<'EOF'
 if status is-login; and test (tty) = /dev/tty1; and not set -q WAYLAND_DISPLAY
     exec start-wm
 end
 EOF
+fi
+if [ ! -e "$H/.bash_profile" ]; then
 cat > "$H/.bash_profile" <<'EOF'
 [ -f ~/.bashrc ] && . ~/.bashrc
 if [ "$(tty)" = /dev/tty1 ] && [ -z "$WAYLAND_DISPLAY" ]; then exec start-wm; fi
 EOF
-in_chroot "chsh -s /usr/bin/fish $USERNAME" 2>/dev/null || true
+fi
+if [ "$(in_chroot "getent passwd $USERNAME | cut -d: -f7")" = /bin/bash ]; then
+	in_chroot "chsh -s /usr/bin/fish $USERNAME" || die "Could not set the user's login shell to fish."
+fi
 
 # Monitor brightness over DDC/CI (bar brightness module): i2c-dev + i2c group
 mkdir -p "$MNT/etc/modules-load.d" "$MNT/etc/udev/rules.d"
-echo i2c-dev > "$MNT/etc/modules-load.d/i2c-dev.conf"
-echo 'KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"' > "$MNT/etc/udev/rules.d/60-i2c-group.rules"
+[ -e "$MNT/etc/modules-load.d/i2c-dev.conf" ] || echo i2c-dev > "$MNT/etc/modules-load.d/i2c-dev.conf"
+[ -e "$MNT/etc/udev/rules.d/60-i2c-group.rules" ] ||
+	echo 'KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"' > "$MNT/etc/udev/rules.d/60-i2c-group.rules"
 in_chroot "getent group i2c >/dev/null || groupadd -r i2c; usermod -aG i2c $USERNAME"
 
 mkdir -p "$MNT/etc/polkit-1/rules.d"
-cp "$REPO/configs/polkit/50-wheel-noauth.rules" "$MNT/etc/polkit-1/rules.d/"
+[ -e "$MNT/etc/polkit-1/rules.d/50-wheel-noauth.rules" ] ||
+	cp "$REPO/configs/polkit/50-wheel-noauth.rules" "$MNT/etc/polkit-1/rules.d/"
 
-if [ "${OPT[virt]}" = y ]; then
+if [ "${OPT[virt]}" = y ] && [ "${OPTIONAL_GROUP_FAILED[virt]:-n}" != y ]; then
 	grep -Fq 'unix_sock_group = "libvirt"' "$MNT/etc/libvirt/libvirtd.conf" 2>/dev/null || cat "$REPO/configs/libvirt/libvirtd.conf.d-socket" >> "$MNT/etc/libvirt/libvirtd.conf"
 	in_chroot "usermod -aG libvirt,kvm $USERNAME"
-	link libvirtd 2>/dev/null || true
-	[ -e "$MNT/etc/dinit.d/virtlogd" ] && link virtlogd
+	if [ -e "$MNT/etc/dinit.d/libvirtd" ]; then link libvirtd; else record_optional_failure libvirt "dinit libvirtd service definition missing"; fi
+	if [ -e "$MNT/etc/dinit.d/virtlogd" ]; then link virtlogd; fi
 fi
-if [ "$AMNEZIA" = y ]; then
-	cp "$REPO/dinit/amneziavpn" "$MNT/etc/dinit.d/"
-	link amneziavpn
+if [ "$AMNEZIA" = y ] && [ "$AMNEZIA_FAILED" != y ]; then
+	[ -e "$MNT/etc/dinit.d/amneziavpn" ] || cp "$REPO/dinit/amneziavpn" "$MNT/etc/dinit.d/"
+	link amneziavpn || record_optional_failure amneziavpn "could not enable dinit service"
 fi
-[ "${OPT[games]}" = y ] && in_chroot "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo" || true
+if [ "${OPT[games]}" = y ] && [ "${OPTIONAL_GROUP_FAILED[games]:-n}" != y ]; then
+	in_chroot "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo" ||
+		record_optional_failure flathub "could not add Flatpak remote"
+fi
 
 # First login tasks that need a running session
+if [ ! -e "$H/first-login.sh" ]; then
 cat > "$H/first-login.sh" <<EOF
 #!/bin/sh
 # One-time setup after the first boot. Run it, then delete it.
@@ -645,16 +685,18 @@ $( [ "${OPT[games]}" = y ] && echo 'flatpak install -y flathub org.vinegarhq.Sob
 echo "first-login: done"
 EOF
 chmod +x "$H/first-login.sh"
+fi
 in_chroot "chown -R $USERNAME: /home/$USERNAME"
 
 # Back to password-prompting doas
-printf 'permit persist :wheel\n' > "$MNT/etc/doas.conf"
+grep -Fxq 'permit persist :wheel' "$MNT/etc/doas.conf" ||
+	printf '%s\n' 'permit persist :wheel' >> "$MNT/etc/doas.conf"
+sed -i "/^permit nopass $USERNAME$/d" "$MNT/etc/doas.conf"
 
 say "Done."
 if [ ${#AUR_FAILED[@]} -gt 0 ]; then
 	warn "These AUR packages did not install: ${AUR_FAILED[*]}"
 	warn "After the first boot retry them with: paru -S ${AUR_FAILED[*]}"
-	printf '%s\n' "paru -S --needed ${AUR_FAILED[*]}" >> "$H/first-login.sh"
 fi
 if [ ${#FAILED_OPTIONAL[@]} -gt 0 ]; then
 	warn "Optional components not installed: ${FAILED_OPTIONAL[*]}"

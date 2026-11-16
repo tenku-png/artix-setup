@@ -1,7 +1,6 @@
 # AmneziaVPN daemon (from the upstream systemd unit). /etc/dinit.d/amneziavpn
 type            = process
 command         = /opt/AmneziaVPN/bin/AmneziaVPN-service
-depends-on      = network.target
 restart         = true
 restart-delay   = 1
 smooth-recovery = true

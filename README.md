@@ -44,20 +44,31 @@ libvirt over its socket, AmneziaVPN as a dinit service.
 After the first boot: log in on tty1 (the default compositor starts),
 then run `~/first-login.sh` once (Sober).
 
-### Recover an interrupted SwayFX install
+### Recover an interrupted installation
 
 From the Artix Live ISO, mount the existing Linux Btrfs root at `/mnt` using
 its existing `@` subvolume, then mount the existing EFI partition at `/mnt/boot`.
-Do not run the normal installer again. Clone this repository and run:
+Do not run the normal installer again. Download the current script and run:
 
 ```sh
-bash install.sh --resume-swayfx
+curl -fsSL https://raw.githubusercontent.com/tenku-png/artix-setup/main/install.sh -o install.sh
+bash install.sh --resume
 ```
 
-This recovery mode checks for the installed system and `paru`, updates packages,
-installs the pinned AUR dependencies, and rebuilds SwayFX. It does not partition,
-format, swap off, or unmount any device. It cannot recover if the base system or
-AUR helper was never installed; the error identifies the missing prerequisite.
+Recovery resumes the package/configuration stages, including SwayFX, lilith,
+and final configuration. It never partitions, formats, recreates Btrfs
+subvolumes, changes `fstab`, recreates the user, or unmounts a device. It
+preserves existing user configuration files. Saved choices are read from
+`/mnt/root/.artix-setup-state`; older partial installs without a checkpoint
+prompt for the existing username, compositor, and optional groups. Optional
+package failures are logged to `/mnt/var/log/artix-setup-install.log` and
+reported at the end; the next groups still run.
+
+Before building wlroots0.19, the installer fetches Simon Ser's public key from
+keys.openpgp.org and verifies the full fingerprint
+`34FF9526CFEF0E97A340E2E40FDE7BE0E88F5E48`. Pacman/makepkg signature checks
+remain enabled. The AmneziaVPN AUR build removes its upstream systemctl-only
+service scriptlet calls; the installer uses the repository's dinit service.
 
 For `target not found: wlroots0.19`: `wlroots0.19` is an AUR package, not an
 Artix repository package. It was incorrectly listed as a repository dependency
@@ -65,9 +76,8 @@ and sent to `pacman`. Pinned SwayFX 0.5.3 uses `wlroots0.19` and `scenefx0.4`;
 current upstream AUR SwayFX 0.6.1 instead targets `wlroots0.20` and `scenefx0.5`.
 These versions must not be mixed.
 
-This repository currently targets **dinit**, including service definitions and
-package names. It is not a runit installer. The dependency fix and recovery mode
-do not convert the system to runit; use a dinit Artix ISO for this repository.
+This repository targets **dinit**, including service definitions and package
+names.
 
 ### Repair package mirrors in a partial installation
 
@@ -85,25 +95,6 @@ signature checks remain enabled. This repair mode does not format, repartition,
 unmount, or install/remove packages; after a successful sync, retry the pacman
 command that failed. A full installer run remains destructive to its selected
 Linux root partition, so do not use it to resume a partial install.
-
-### Resume an interrupted installation
-
-Mount the existing root Btrfs subvolume at `/mnt` and its existing EFI
-partition at `/mnt/boot`. Download the current installer and run:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/tenku-png/artix-setup/main/install.sh -o install.sh
-bash install.sh --resume
-```
-
-The installer restores saved non-secret choices from
-`/mnt/root/.artix-setup-state`, skips partitioning, formatting, base setup,
-user creation, boot setup, and service setup, then retries the package/config
-stage idempotently. Optional package-group failures are logged to
-`/mnt/var/log/artix-setup-install.log` and reported at the end while later
-groups continue. If no checkpoint exists from an older partial run, it asks for
-the existing username and package selections without recreating the user or
-touching disks.
 
 ## Layout
 
