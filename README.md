@@ -69,6 +69,23 @@ This repository currently targets **dinit**, including service definitions and
 package names. It is not a runit installer. The dependency fix and recovery mode
 do not convert the system to runit; use a dinit Artix ISO for this repository.
 
+### Repair package mirrors in a partial installation
+
+Boot the Live ISO, mount the existing root at `/mnt`, then run:
+
+```sh
+bash install.sh --repair-mirrors
+```
+
+The installer probes current Artix mirror entries and three official fallback
+mirrors for the `system.db` repository database, sorts reachable servers by
+response time, and configures bounded curl retries for pacman downloads. It
+then syncs repository databases inside the mounted target with pacman. Package
+signature checks remain enabled. This repair mode does not format, repartition,
+unmount, or install/remove packages; after a successful sync, retry the pacman
+command that failed. A full installer run remains destructive to its selected
+Linux root partition, so do not use it to resume a partial install.
+
 ## Layout
 
 | Path | |

@@ -14,6 +14,7 @@ MNT=/mnt
 # ---------------------------------------------------------------- helpers
 DRY_RUN=n; [ "${1:-}" = "--dry-run" ] && DRY_RUN=y
 RESUME=n; [ "${1:-}" = "--resume-swayfx" ] && RESUME=y
+MIRRORS_ONLY=n; [ "${1:-}" = "--repair-mirrors" ] && MIRRORS_ONLY=y
 c_b=$'\e[1m'; c_g=$'\e[32m'; c_y=$'\e[33m'; c_r=$'\e[31m'; c_c=$'\e[36m'; c_0=$'\e[0m'
 say()  { printf '%s==>%s %s\n' "$c_g$c_b" "$c_0" "$*"; }
 warn() { printf '%s==> %s%s\n' "$c_y" "$*" "$c_0" >&2; }
@@ -69,6 +70,46 @@ pkgs() { # pkgs file repo|aur
 	if [ "$2" = aur ]; then sed -n 's/^aur://p'; else grep -v '^aur:' || true; fi
 }
 
+# Probe Artix repository databases and put the fastest working mirrors first.
+# Pacman still verifies package signatures; curl here only downloads files.
+prepare_artix_mirrors() { # pacman root (/, or /mnt)
+	local root=$1 list="$1/etc/pacman.d/mirrorlist" tmp raw server probe elapsed
+	[ -f "$list" ] || die "Artix mirror list not found: $list"
+	tmp=$(mktemp)
+	{
+		awk '$1 == "Server" {print $3}' "$list"
+		printf '%s\n' \
+			'https://mirror1.artixlinux.org/repos/$repo/os/$arch' \
+			'https://mirror2.artixlinux.org/repos/$repo/os/$arch' \
+			'https://mirror3.artixlinux.org/repos/$repo/os/$arch'
+	} | sed 's/#.*//' | sed '/^[[:space:]]*$/d' | sort -u > "$tmp.input"
+	while IFS= read -r raw; do
+		server=${raw//\$repo/system}; server=${server//\$arch/x86_64}
+		probe=${server%/}/system.db
+		if elapsed=$(curl -fsSL --connect-timeout 5 --max-time 12 -o /dev/null \
+			-w '%{time_total}' "$probe" 2>/dev/null); then
+			printf '%s\t%s\n' "$elapsed" "$raw" >> "$tmp"
+		fi
+	done < "$tmp.input"
+	rm -f "$tmp.input"
+	[ -s "$tmp" ] || { rm -f "$tmp"; die "No Artix mirrors passed the system.db check. Check network/DNS; no mass package install was started."; }
+	{
+		sort -n "$tmp" | sed -n '1,6p' | cut -f2- | while IFS= read -r server; do
+			printf 'Server = %s\n' "$server"
+		done
+	} > "$list.new"
+	mv "$list.new" "$list"
+	rm -f "$tmp"
+	# Use bounded retries for transient transfer errors; pacman still validates
+	# every downloaded package against its signed repository metadata.
+	if [ -f "$root/etc/pacman.conf" ]; then
+		if grep -q '^\[options\]' "$root/etc/pacman.conf"; then
+			sed -i '/^XferCommand[[:space:]]*=/d; /^\[options\]/a XferCommand = /usr/bin/curl --fail --location --retry 3 --retry-all-errors --connect-timeout 10 --max-time 300 --output %o %u' "$root/etc/pacman.conf"
+		fi
+	fi
+	say "Artix mirrors ready (fastest reachable mirrors first): $(sed -n 's/^Server = //p' "$list" | paste -sd ' ' -)"
+}
+
 # ---------------------------------------------------------------- checks
 [ "$(id -u)" = 0 ] || die "run as root"
 [ -d /sys/firmware/efi/efivars ] || die "not booted in UEFI mode (enable UEFI in the VM/PC firmware settings)"
@@ -78,7 +119,8 @@ curl -fsS --max-time 15 -o /dev/null https://github.com 2>/dev/null ||
 	curl -fsS --max-time 15 -o /dev/null https://artixlinux.org 2>/dev/null ||
 	die "no network (try: dinitctl start dhcpcd)"
 
-pacman -Sy --needed --noconfirm git >/dev/null
+prepare_artix_mirrors /
+retry pacman -Syy --needed --noconfirm git >/dev/null || die "Live ISO package sync failed after mirror retries; see pacman output above."
 # A stalled connection makes git hang forever; abort slow transfers after
 # 20 s so retry() can try again (also written to the new system below)
 GITCONF='[http]
@@ -99,10 +141,11 @@ fi
 if [ "$RESUME" = y ]; then
 	[ -f "$MNT/etc/pacman.conf" ] || die "no installed system at $MNT; mount its existing root partition there first"
 	[ -x "$MNT/usr/bin/pacman" ] || die "base system is incomplete; finish basestrap before resuming packages"
+	prepare_artix_mirrors "$MNT"
 	USERNAME=$(ask "Installed username" "")
 	[ -d "$MNT/home/$USERNAME" ] || die "user home not found: $MNT/home/$USERNAME"
 	step "Repairing pinned SwayFX dependencies and build"
-	in_chroot "pacman -Syu --needed --noconfirm git base-devel meson ninja"
+	in_chroot "pacman -Syyu --needed --noconfirm git base-devel meson ninja" || die "Target package sync/update failed after mirror retries; inspect pacman errors above."
 	mkdir -p "$MNT/home/$USERNAME/.config/paru"
 	printf '[bin]\nSudo = doas\n' > "$MNT/home/$USERNAME/.config/paru/paru.conf"
 	in_chroot "chown -R $USERNAME: /home/$USERNAME/.config"
@@ -119,6 +162,16 @@ if [ "$RESUME" = y ]; then
 		patch -d src/swayfx-0.5.3 -p1 < /tmp/middle-drag.patch &&
 		makepkg -efi --noconfirm"
 	say "SwayFX recovery completed successfully."
+	exit 0
+fi
+
+# Repair package sources in an already installed target, without running any
+# installation, mount, partition, or format steps.
+if [ "$MIRRORS_ONLY" = y ]; then
+	[ -f "$MNT/etc/pacman.conf" ] || die "mount the existing installed root at /mnt first"
+	prepare_artix_mirrors "$MNT"
+	in_chroot "pacman -Syy" || die "Repository database sync failed. Review the mirror list and network above; no packages were changed."
+	say "Repository databases synced. You can retry the package command that failed; installed packages and disks were not changed."
 	exit 0
 fi
 
@@ -351,8 +404,9 @@ sed -i "s/^#\?MAKEFLAGS=.*/MAKEFLAGS=\"-j$(nproc)\"/" "$MNT/etc/makepkg.conf"
 
 # Repositories: Artix lib32 + Arch extra/multilib (Steam, many desktop packages)
 say "Enabling lib32 and Arch repositories"
+prepare_artix_mirrors "$MNT"
 sed -i '/^#\[lib32\]/{s/^#//;n;s/^#//}' "$MNT/etc/pacman.conf"
-in_chroot "pacman -Sy --needed --noconfirm artix-archlinux-support"
+in_chroot "pacman -Syy --needed --noconfirm artix-archlinux-support" || die "Could not sync/install Artix repository support; see mirror diagnostics above."
 [ -n "$ARCH_MIRROR" ] && sed -i "1i Server = $ARCH_MIRROR" "$MNT/etc/pacman.d/mirrorlist-arch"
 grep -q '^\[extra\]' "$MNT/etc/pacman.conf" || cat >> "$MNT/etc/pacman.conf" <<'EOF'
 
@@ -362,7 +416,7 @@ Include = /etc/pacman.d/mirrorlist-arch
 [multilib]
 Include = /etc/pacman.d/mirrorlist-arch
 EOF
-in_chroot "pacman-key --populate archlinux; pacman -Syu --noconfirm"
+in_chroot "pacman-key --populate archlinux && pacman -Syyu --noconfirm" || die "Target repositories failed preflight/update; package installation stopped before desktop package groups."
 
 # ---------------------------------------------------------------- boot
 say "Boot entry (EFISTUB, no GRUB)"
@@ -406,7 +460,7 @@ fi
 # ---------------------------------------------------------------- packages
 install_group() { # repo packages of a group
 	local p; p=$(pkgs "$1" repo | tr '\n' ' ')
-	if [ -n "$p" ]; then in_chroot "pacman -S --needed --noconfirm --ask=4 $p"; fi
+	if [ -n "$p" ]; then retry in_chroot "pacman -S --needed --noconfirm --ask=4 $p" || die "Package group $1 failed after three attempts. Check mirror/network diagnostics, then resume package installation; disks were already prepared."; fi
 }
 AUR_PKGS=()
 AUR_FAILED=()
@@ -414,17 +468,17 @@ add_aur() { local p; while read -r p; do [ -n "$p" ] && AUR_PKGS+=("$p"); done <
 
 say "GPU drivers"
 case $GPU in
-1) in_chroot "pacman -S --needed --noconfirm nvidia-open-dkms nvidia-utils lib32-nvidia-utils libva-nvidia-driver"
+1) retry in_chroot "pacman -S --needed --noconfirm nvidia-open-dkms nvidia-utils lib32-nvidia-utils libva-nvidia-driver" || die "NVIDIA package installation failed after three attempts."
    printf 'options nvidia_drm modeset=1 fbdev=1\noptions nvidia NVreg_PreserveVideoMemoryAllocations=1\n' \
 	> "$MNT/etc/modprobe.d/nvidia.conf" ;;
-2) in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon" ;;
-*) in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-swrast lib32-vulkan-swrast" ;;
+2) retry in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon" || die "AMD package installation failed after three attempts." ;;
+*) retry in_chroot "pacman -S --needed --noconfirm mesa lib32-mesa vulkan-swrast lib32-vulkan-swrast" || die "Generic GPU package installation failed after three attempts." ;;
 esac
 
 say "Desktop packages"
 # Install the preferred providers first so --noconfirm never picks the wrong
 # one (jack2 instead of pipewire-jack, a random ttf-font, ...)
-in_chroot "pacman -S --needed --noconfirm ttf-dejavu pipewire pipewire-jack pipewire-pulse"
+retry in_chroot "pacman -S --needed --noconfirm ttf-dejavu pipewire pipewire-jack pipewire-pulse" || die "Core desktop package installation failed after three attempts."
 install_group audio.txt;   add_aur audio.txt
 install_group desktop.txt; add_aur desktop.txt
 [ "$WMSEL" != 2 ] && install_group lilith.txt
