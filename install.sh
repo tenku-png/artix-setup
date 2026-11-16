@@ -656,12 +656,11 @@ if status is-login; and test (tty) = /dev/tty1; and not set -q WAYLAND_DISPLAY
 end
 EOF
 fi
-if [ ! -e "$H/.bash_profile" ]; then
-cat > "$H/.bash_profile" <<'EOF'
-[ -f ~/.bashrc ] && . ~/.bashrc
-if [ "$(tty)" = /dev/tty1 ] && [ -z "$WAYLAND_DISPLAY" ]; then exec start-wm; fi
-EOF
-fi
+# useradd -m already copies a .bash_profile from /etc/skel, so append
+# instead of skipping when the file exists (bash login never started the WM)
+[ -e "$H/.bash_profile" ] || echo '[ -f ~/.bashrc ] && . ~/.bashrc' > "$H/.bash_profile"
+grep -q 'exec start-wm' "$H/.bash_profile" ||
+	echo 'if [ "$(tty)" = /dev/tty1 ] && [ -z "$WAYLAND_DISPLAY" ]; then exec start-wm; fi' >> "$H/.bash_profile"
 if [ "$(in_chroot "getent passwd $USERNAME | cut -d: -f7")" = /bin/bash ]; then
 	in_chroot "chsh -s /usr/bin/fish $USERNAME" || die "Could not set the user's login shell to fish."
 fi
